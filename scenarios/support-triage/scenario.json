@@ -1,0 +1,416 @@
+{
+  "version": 1,
+  "bespokeIdentifier": "cosmo-automations",
+  "title": "Build the enterprise escalation digest",
+  "instructions": [
+    "Support keeps open tickets in Postgres and the customer list in Airtable. Neither one alone says which tickets matter most.",
+    "Build a workflow that:",
+    "1. Reads the open tickets with the query `SELECT ticket, accountId, subject, minutesOpen FROM tickets WHERE status = 'open'` using the Support DB credential.",
+    "2. Lists the `Accounts` table from Airtable base `appSupport` using the Airtable credential. Each record has an `accountId`, a `company` and a `tier`.",
+    "3. The ticket query joins two tables, so some tickets come back more than once. There should be one item per ticket before anything else happens.",
+    "4. Attaches each ticket's account to it, matching on `accountId`. A ticket with no matching account should not appear in the digest.",
+    "5. Routes tickets by `tier`, and continues with the `enterprise` ones only.",
+    "6. Takes the three that have been open longest.",
+    "7. Appends those three, longest-open first, to sheet `Digest` in document `sheetDigest2026` using the Sheets credential \u2014 one row each, with the columns `Ticket`, `Company` and `MinutesOpen`."
+  ],
+  "palette": {
+    "include": [
+      "manualTrigger",
+      "postgres",
+      "airtable",
+      "googleSheets",
+      "removeDuplicates",
+      "merge",
+      "switch",
+      "sort",
+      "limit",
+      "set",
+      "filter",
+      "if",
+      "splitOut",
+      "aggregate",
+      "noOp"
+    ],
+    "exclude": [],
+    "excludeNote": "Code is deliberately not offered. This task exists to teach the core-set nodes \u2014 dedupe, join, route, sort, limit \u2014 and the assertions check that mechanism, so a Code node that produced the right rows would be rejected for the wrong reason. A scenario that offers Code must assert on outcomes only; see the README authoring guide."
+  },
+  "initialWorkflow": {
+    "nodes": [
+      {
+        "id": "n1",
+        "name": "When clicking Execute",
+        "type": "manualTrigger",
+        "position": [
+          -260,
+          0
+        ],
+        "parameters": {}
+      }
+    ],
+    "connections": []
+  },
+  "credentialTypes": [
+    {
+      "name": "postgresApi",
+      "label": "Postgres",
+      "auth": [
+        {
+          "in": "header",
+          "name": "X-Api-Key",
+          "value": "{apiKey}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "apiKey",
+          "label": "Database API Key",
+          "type": "password",
+          "placeholder": "pg_test_\u2026"
+        }
+      ],
+      "docs": "The read-only key issued for this database."
+    },
+    {
+      "name": "airtableTokenApi",
+      "label": "Airtable Personal Access Token",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {token}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "token",
+          "label": "Personal Access Token",
+          "type": "password",
+          "placeholder": "pat\u2026"
+        }
+      ],
+      "docs": "Airtable \u2192 Builder hub \u2192 Personal access tokens."
+    },
+    {
+      "name": "googleSheetsOAuth2",
+      "label": "Google Sheets OAuth2",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {accessToken}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "accessToken",
+          "label": "Access Token",
+          "type": "password",
+          "placeholder": "ya29-\u2026"
+        }
+      ],
+      "docs": "Google Cloud \u2192 APIs & Services \u2192 Credentials \u2192 OAuth 2.0 access token."
+    }
+  ],
+  "mockApi": {
+    "defaultDeny": true,
+    "hosts": {
+      "db.internal.test": {
+        "requireAuth": {
+          "header": "X-Api-Key",
+          "equals": "pg_test_FAKE_8c31de"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/query",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "missing or invalid api key"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/query",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "rowCount": 9,
+              "rows": [
+                {
+                  "ticket": "T-101",
+                  "accountId": "A-1",
+                  "subject": "Checkout fails",
+                  "minutesOpen": 310
+                },
+                {
+                  "ticket": "T-102",
+                  "accountId": "A-2",
+                  "subject": "Slow dashboard",
+                  "minutesOpen": 120
+                },
+                {
+                  "ticket": "T-101",
+                  "accountId": "A-1",
+                  "subject": "Checkout fails",
+                  "minutesOpen": 310
+                },
+                {
+                  "ticket": "T-103",
+                  "accountId": "A-3",
+                  "subject": "Export empty",
+                  "minutesOpen": 480
+                },
+                {
+                  "ticket": "T-104",
+                  "accountId": "A-1",
+                  "subject": "Login loop",
+                  "minutesOpen": 95
+                },
+                {
+                  "ticket": "T-105",
+                  "accountId": "A-4",
+                  "subject": "Billing mismatch",
+                  "minutesOpen": 640
+                },
+                {
+                  "ticket": "T-106",
+                  "accountId": "A-2",
+                  "subject": "API 500s",
+                  "minutesOpen": 200
+                },
+                {
+                  "ticket": "T-103",
+                  "accountId": "A-3",
+                  "subject": "Export empty",
+                  "minutesOpen": 480
+                },
+                {
+                  "ticket": "T-107",
+                  "accountId": "A-5",
+                  "subject": "Webhook retries",
+                  "minutesOpen": 150
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "api.airtable.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer pat_FAKE_000000"
+        },
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/v0/appSupport/Accounts",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "invalid personal access token"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/v0/appSupport/Accounts",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "records": [
+                {
+                  "id": "recA1",
+                  "fields": {
+                    "accountId": "A-1",
+                    "company": "Nordwind GmbH",
+                    "tier": "enterprise"
+                  }
+                },
+                {
+                  "id": "recA2",
+                  "fields": {
+                    "accountId": "A-2",
+                    "company": "Redwood Labs",
+                    "tier": "standard"
+                  }
+                },
+                {
+                  "id": "recA3",
+                  "fields": {
+                    "accountId": "A-3",
+                    "company": "Bruges Interiors",
+                    "tier": "enterprise"
+                  }
+                },
+                {
+                  "id": "recA4",
+                  "fields": {
+                    "accountId": "A-4",
+                    "company": "Kirin Systems",
+                    "tier": "enterprise"
+                  }
+                },
+                {
+                  "id": "recA5",
+                  "fields": {
+                    "accountId": "A-5",
+                    "company": "Lisbon Freight",
+                    "tier": "standard"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "sheets.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer ya29-FAKE-000000"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/v4/spreadsheets/sheetDigest2026/values/Digest:append",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "invalid oauth token"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v4/spreadsheets/sheetDigest2026/values/Digest:append",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "updates": {
+                "updatedRows": 1
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "triggerPayload": {
+    "manualTrigger": [
+      {}
+    ]
+  },
+  "vars": {},
+  "env": {},
+  "limits": {
+    "maxNodes": 40,
+    "maxItems": 5000,
+    "maxExecutionMs": 5000
+  },
+  "assertions": [
+    {
+      "id": "reads-tickets",
+      "type": "httpCalled",
+      "method": "POST",
+      "path": "/__mock/db.internal.test/query",
+      "times": 1,
+      "message": "The tickets query should run exactly once, not once per item."
+    },
+    {
+      "id": "lists-accounts",
+      "type": "httpCalled",
+      "method": "GET",
+      "path": "/__mock/api.airtable.test/v0/appSupport/Accounts",
+      "times": 1,
+      "message": "The Airtable accounts table should be listed exactly once."
+    },
+    {
+      "id": "dedupes-tickets",
+      "type": "nodeExists",
+      "nodeType": "removeDuplicates",
+      "message": "The query returns some tickets twice \u2014 they need de-duplicating."
+    },
+    {
+      "id": "seven-unique-tickets",
+      "type": "itemCount",
+      "nodeType": "removeDuplicates",
+      "port": "out",
+      "comparison": "exactly",
+      "count": 7,
+      "message": "Nine rows come back and seven of them are distinct tickets."
+    },
+    {
+      "id": "joins-on-account",
+      "type": "nodeExists",
+      "nodeType": "merge",
+      "message": "The tier lives on the account, not the ticket \u2014 the two lists have to be joined."
+    },
+    {
+      "id": "joins-on-account-field",
+      "type": "expressionContains",
+      "nodeType": "merge",
+      "param": "matchField",
+      "substring": "accountId",
+      "message": "The join should match tickets to accounts on accountId."
+    },
+    {
+      "id": "routes-by-tier",
+      "type": "nodeExists",
+      "nodeType": "switch",
+      "message": "Tickets should be routed by tier."
+    },
+    {
+      "id": "three-rows-written",
+      "type": "itemCount",
+      "nodeType": "googleSheets",
+      "port": "in",
+      "comparison": "exactly",
+      "count": 3,
+      "message": "Exactly three rows belong in the digest."
+    },
+    {
+      "id": "appends-three-rows",
+      "type": "httpCalled",
+      "method": "POST",
+      "path": "/__mock/sheets.test/v4/spreadsheets/sheetDigest2026/values/Digest:append",
+      "times": 3,
+      "message": "One append per row: three rows means three calls."
+    },
+    {
+      "id": "longest-open-first",
+      "type": "sinkPayloadMatches",
+      "nodeType": "googleSheets",
+      "match": {
+        "Ticket": "T-105",
+        "Company": "Kirin Systems",
+        "MinutesOpen": 640
+      },
+      "message": "T-105 has been open longest (640 minutes) and belongs in the digest."
+    },
+    {
+      "id": "second-longest",
+      "type": "sinkPayloadMatches",
+      "nodeType": "googleSheets",
+      "match": {
+        "Ticket": "T-103",
+        "Company": "Bruges Interiors",
+        "MinutesOpen": 480
+      },
+      "message": "T-103 is the second longest-open enterprise ticket."
+    },
+    {
+      "id": "third-longest",
+      "type": "sinkPayloadMatches",
+      "nodeType": "googleSheets",
+      "match": {
+        "Ticket": "T-101",
+        "Company": "Nordwind GmbH",
+        "MinutesOpen": 310
+      },
+      "message": "T-101 is the third longest-open enterprise ticket."
+    },
+    {
+      "id": "no-node-errors",
+      "type": "noNodeErrors",
+      "message": "Every node should complete without an error."
+    }
+  ]
+}

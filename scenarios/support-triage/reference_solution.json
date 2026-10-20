@@ -1,0 +1,247 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "When clicking Execute",
+      "type": "manualTrigger",
+      "position": [
+        -260,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n2",
+      "name": "Fetch Open Tickets",
+      "type": "postgres",
+      "position": [
+        -60,
+        -120
+      ],
+      "credentialId": "cred_db",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ticket, accountId, subject, minutesOpen FROM tickets WHERE status = 'open'",
+        "table": "",
+        "columns": []
+      }
+    },
+    {
+      "id": "n3",
+      "name": "List Accounts",
+      "type": "airtable",
+      "position": [
+        -60,
+        120
+      ],
+      "credentialId": "cred_airtable",
+      "parameters": {
+        "operation": "list",
+        "baseId": "appSupport",
+        "table": "Accounts",
+        "fields": []
+      }
+    },
+    {
+      "id": "n4",
+      "name": "One Row Per Ticket",
+      "type": "removeDuplicates",
+      "position": [
+        160,
+        -120
+      ],
+      "parameters": {
+        "compare": "selectedFields",
+        "fields": [
+          "ticket"
+        ]
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Attach Account",
+      "type": "merge",
+      "position": [
+        380,
+        0
+      ],
+      "parameters": {
+        "mode": "combineByFields",
+        "matchField": "accountId",
+        "joinMode": "keepMatches",
+        "includeUnpaired": false,
+        "useDataOf": "input1"
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Route By Tier",
+      "type": "switch",
+      "position": [
+        600,
+        0
+      ],
+      "parameters": {
+        "rules": [
+          {
+            "output": "enterprise",
+            "left": "={{ $json.tier }}",
+            "op": "equals",
+            "right": "enterprise"
+          },
+          {
+            "output": "standard",
+            "left": "={{ $json.tier }}",
+            "op": "equals",
+            "right": "standard"
+          }
+        ],
+        "fallback": "none",
+        "allMatches": false
+      }
+    },
+    {
+      "id": "n7",
+      "name": "Longest Open First",
+      "type": "sort",
+      "position": [
+        820,
+        -80
+      ],
+      "parameters": {
+        "type": "fields",
+        "fields": [
+          {
+            "field": "minutesOpen",
+            "order": "descending"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n8",
+      "name": "Top Three",
+      "type": "limit",
+      "position": [
+        1020,
+        -80
+      ],
+      "parameters": {
+        "maxItems": 3,
+        "keep": "firstItems"
+      }
+    },
+    {
+      "id": "n9",
+      "name": "Write Digest",
+      "type": "googleSheets",
+      "position": [
+        1240,
+        -80
+      ],
+      "credentialId": "cred_sheets",
+      "parameters": {
+        "operation": "append",
+        "documentId": "sheetDigest2026",
+        "sheetName": "Digest",
+        "columns": [
+          {
+            "name": "Ticket",
+            "value": "={{ $json.ticket }}"
+          },
+          {
+            "name": "Company",
+            "value": "={{ $json.company }}"
+          },
+          {
+            "name": "MinutesOpen",
+            "value": "={{ $json.minutesOpen }}"
+          }
+        ]
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "n1",
+      "fromOutput": 0,
+      "to": "n2",
+      "toInput": 0
+    },
+    {
+      "from": "n1",
+      "fromOutput": 0,
+      "to": "n3",
+      "toInput": 0
+    },
+    {
+      "from": "n2",
+      "fromOutput": 0,
+      "to": "n4",
+      "toInput": 0
+    },
+    {
+      "from": "n4",
+      "fromOutput": 0,
+      "to": "n5",
+      "toInput": 0
+    },
+    {
+      "from": "n3",
+      "fromOutput": 0,
+      "to": "n5",
+      "toInput": 1
+    },
+    {
+      "from": "n5",
+      "fromOutput": 0,
+      "to": "n6",
+      "toInput": 0
+    },
+    {
+      "from": "n6",
+      "fromOutput": 0,
+      "to": "n7",
+      "toInput": 0
+    },
+    {
+      "from": "n7",
+      "fromOutput": 0,
+      "to": "n8",
+      "toInput": 0
+    },
+    {
+      "from": "n8",
+      "fromOutput": 0,
+      "to": "n9",
+      "toInput": 0
+    }
+  ],
+  "credentials": [
+    {
+      "id": "cred_airtable",
+      "name": "Airtable (support base)",
+      "type": "airtableTokenApi",
+      "fields": {
+        "token": "pat_FAKE_000000"
+      }
+    },
+    {
+      "id": "cred_db",
+      "name": "Support DB (read-only)",
+      "type": "postgresApi",
+      "fields": {
+        "apiKey": "pg_test_FAKE_8c31de"
+      }
+    },
+    {
+      "id": "cred_sheets",
+      "name": "Google Sheets (ops)",
+      "type": "googleSheetsOAuth2",
+      "fields": {
+        "accessToken": "ya29-FAKE-000000"
+      }
+    }
+  ]
+}

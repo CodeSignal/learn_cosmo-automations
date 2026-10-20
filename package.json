@@ -1,0 +1,48 @@
+{
+  "name": "cosmo-automations",
+  "version": "0.1.0",
+  "description": "Cosmo Automations \u2014 a node-graph workflow automation simulation for CodeSignal Learn & Hire",
+  "main": "server.js",
+  "scripts": {
+    "start": "npm run start:prod",
+    "start:prod": "IS_PRODUCTION=true node server.js",
+    "start:dev": "concurrently -n vite,api -c cyan,magenta \"npm run dev:vite\" \"npm run dev:api\"",
+    "dev": "npm run start:dev",
+    "dev:vite": "vite",
+    "dev:api": "PORT=${API_PORT:-3001} node server.js",
+    "build": "vite build",
+    "test": "node --test \"test/*.test.js\"",
+    "grade": "node parse_automation_solution.js",
+    "experiment": "./scripts/grading-experiment.sh && ./scripts/grading-experiment.sh scenarios/refund-desk-agents",
+    "rehearse": "node scripts/rehearse-demo.js",
+    "rehearse:showcase": "node scripts/rehearse-showcase.js",
+    "reset:demo": "node -e \"const fs=require('fs');const {defaultScenario,readJson}=require('./engine/scenarios');const s=readJson(defaultScenario().scenarioPath);fs.writeFileSync('solution.json',JSON.stringify(s.initialWorkflow,null,2));fs.rmSync('execution.json',{force:true});console.log('demo state reset: blank canvas, no trace')\"",
+    "demo": "node scripts/stage-demo.js",
+    "demo:clear": "node scripts/stage-demo.js --clear",
+    "record": "node scripts/record-fixtures.js",
+    "record:video": "node scripts/record-demo.mjs",
+    "verify:release": "node scripts/verify-release.js",
+    "release:local": "npm run build && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -czf release.tar.gz dist/ node_modules/ package.json server.js parse_automation_solution.js run.js engine/ live/ grading/ shared/ scenarios/ scripts/validate-scenario.js scenario.example.jsonc README.md && node scripts/verify-release.js release.tar.gz",
+    "validate": "node scripts/validate-scenario.js"
+  },
+  "keywords": [
+    "codesignal",
+    "bespoke",
+    "simulation",
+    "workflow-automation"
+  ],
+  "license": "Elastic-2.0",
+  "dependencies": {
+    "@xyflow/react": "^12.8.6",
+    "quickjs-emscripten": "^0.32.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.0",
+    "concurrently": "^9.2.1",
+    "playwright": "^1.62.1",
+    "vite": "^7.2.4"
+  }
+}

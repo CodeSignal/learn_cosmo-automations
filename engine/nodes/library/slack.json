@@ -1,0 +1,78 @@
+{
+  "type": "slack",
+  "label": "Slack",
+  "group": "integration",
+  "icon": "chat",
+  "description": "Posts a message to a Slack channel.",
+  "credential": true,
+  "credentialType": "slackApi",
+  "latency": {
+    "base": 220,
+    "perItem": 70
+  },
+  "operations": {
+    "post": {
+      "mode": "runOncePerItem",
+      "request": {
+        "method": "POST",
+        "url": "https://slack.test/api/chat.postMessage",
+        "body": {
+          "channel": "{channel}",
+          "text": "{text}"
+        }
+      },
+      "sink": true,
+      "emit": {
+        "from": "sent",
+        "merge": {
+          "ok": true,
+          "ts": "$now"
+        }
+      }
+    }
+  },
+  "params": [
+    {
+      "name": "channel",
+      "label": "Channel",
+      "type": "string",
+      "placeholder": "#channel-name"
+    },
+    {
+      "name": "text",
+      "label": "Message Text",
+      "type": "string",
+      "multiline": true,
+      "placeholder": "Plain text, or ={{ $json.field }} to build it from the item"
+    }
+  ],
+  "docs": {
+    "summary": "Posts a message to a Slack channel. The message text can be fixed or built from the item that triggered it.",
+    "mode": "Runs once per item \u2014 an item in means a message out.",
+    "when": "Use it to notify people about what the workflow found or did.",
+    "params": [
+      {
+        "name": "channel",
+        "text": "The destination channel, including the leading #."
+      },
+      {
+        "name": "text",
+        "text": "The message. Plain text, or an expression to build it from the item."
+      }
+    ],
+    "examples": [
+      {
+        "label": "A message built from the item",
+        "code": "={{ $json.count }} orders need review \u2014 total ${{ $json.total }}"
+      }
+    ],
+    "gotchas": [
+      "One message per item. Wire it after a Filter that passed forty items and it sends forty messages \u2014 aggregate first if you want a single summary.",
+      "The channel must match exactly, including the #."
+    ],
+    "seeAlso": [
+      "httpRequest",
+      "aggregate"
+    ]
+  }
+}

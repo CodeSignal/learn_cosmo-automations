@@ -1,0 +1,394 @@
+{
+  "version": 1,
+  "bespokeIdentifier": "cosmo-automations",
+  "title": "Decide refunds with an agent and a lookup subagent",
+  "instructions": [
+    "Four refund requests are waiting. Deciding them needs judgement, and for most of them it also needs facts about the order — whether it was delivered, and how long ago. That lookup is a narrow, repetitive job, so it belongs to a cheaper subagent the main agent can call when it needs to.",
+    "Build a workflow that:",
+    "1. Fetches the requests from `https://helpdesk.acme.test/v1/refund-requests` using the Helpdesk credential (API key `hd_test_FAKE_71c0`).",
+    "2. Decides each request with an AI Agent on `gpt-5`. Ask it for a `decision` (`refund` or `deny`) and declare that as its expected output field. The prompt must contain the request being decided.",
+    "3. Gives that agent one tool: an AI Agent Tool named `lookup_order` on `gpt-5-mini`, which takes the order id and returns the order's `status` and `daysSinceDelivery`. Its prompt must use the order id it is given. Describe what it does, so the agent knows when to use it.",
+    "4. Keeps only the requests decided `refund`.",
+    "5. Posts one message to Slack on `#refunds` reading exactly `2 refunds approved` (Slack token `xoxb-FAKE-000000-000000`)."
+  ],
+  "credentialTypes": [
+    {
+      "name": "helpdeskApi",
+      "label": "Helpdesk API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "X-Api-Key",
+          "value": "{apiKey}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "apiKey",
+          "label": "API Key",
+          "type": "password",
+          "placeholder": "hd_test_…"
+        }
+      ],
+      "docs": "Helpdesk → Settings → API keys."
+    },
+    {
+      "name": "slackApi",
+      "label": "Slack API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {token}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "token",
+          "label": "Bot User OAuth Token",
+          "type": "password",
+          "placeholder": "xoxb-…"
+        }
+      ],
+      "docs": "Slack → Your apps → OAuth & Permissions."
+    }
+  ],
+  "mockApi": {
+    "defaultDeny": true,
+    "hosts": {
+      "helpdesk.acme.test": {
+        "requireAuth": {
+          "header": "X-Api-Key",
+          "equals": "hd_test_FAKE_71c0"
+        },
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/v1/refund-requests",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "missing or invalid api key"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/v1/refund-requests",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "count": 4,
+              "requests": [
+                {
+                  "request": "R-01",
+                  "orderId": "O-1001",
+                  "customer": "Nordwind",
+                  "reason": "The kettle arrived with a cracked lid."
+                },
+                {
+                  "request": "R-02",
+                  "orderId": "O-1002",
+                  "customer": "Redwood",
+                  "reason": "Never arrived."
+                },
+                {
+                  "request": "R-03",
+                  "orderId": "O-1003",
+                  "customer": "Kirin",
+                  "reason": "Wrong colour sent."
+                },
+                {
+                  "request": "R-04",
+                  "orderId": "O-1004",
+                  "customer": "Alpina",
+                  "reason": "Bought it last spring and changed my mind."
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "slack.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer xoxb-FAKE-000000-000000"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/api/chat.postMessage",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ai": {
+    "mode": "replay",
+    "models": [
+      "gpt-5",
+      "gpt-5-mini"
+    ],
+    "live": {
+      "enabled": true,
+      "provider": "openai",
+      "models": {
+        "gpt-5": "gpt-5",
+        "gpt-5-mini": "gpt-5-mini"
+      }
+    },
+    "fixtures": [
+      {
+        "id": "decide-R-01",
+        "when": {
+          "input": {
+            "request": "R-01"
+          }
+        },
+        "calls": [
+          {
+            "tool": "lookup_order",
+            "input": {
+              "orderId": "O-1001"
+            }
+          }
+        ],
+        "respond": {
+          "decision": "refund"
+        }
+      },
+      {
+        "id": "decide-R-02",
+        "when": {
+          "input": {
+            "request": "R-02"
+          }
+        },
+        "calls": [
+          {
+            "tool": "lookup_order",
+            "input": {
+              "orderId": "O-1002"
+            }
+          }
+        ],
+        "respond": {
+          "decision": "deny"
+        }
+      },
+      {
+        "id": "decide-R-03",
+        "when": {
+          "input": {
+            "request": "R-03"
+          }
+        },
+        "calls": [
+          {
+            "tool": "lookup_order",
+            "input": {
+              "orderId": "O-1003"
+            }
+          }
+        ],
+        "respond": {
+          "decision": "refund"
+        }
+      },
+      {
+        "id": "decide-R-04",
+        "when": {
+          "input": {
+            "request": "R-04"
+          }
+        },
+        "respond": {
+          "decision": "deny"
+        }
+      },
+      {
+        "id": "decide-catch-all",
+        "when": {},
+        "respond": {
+          "decision": "deny"
+        }
+      },
+      {
+        "id": "lookup-O-1001",
+        "when": {
+          "tool": "lookup_order",
+          "input": {
+            "orderId": "O-1001"
+          }
+        },
+        "respond": {
+          "status": "delivered",
+          "daysSinceDelivery": 3
+        }
+      },
+      {
+        "id": "lookup-O-1002",
+        "when": {
+          "tool": "lookup_order",
+          "input": {
+            "orderId": "O-1002"
+          }
+        },
+        "respond": {
+          "status": "delivered",
+          "daysSinceDelivery": 12
+        }
+      },
+      {
+        "id": "lookup-O-1003",
+        "when": {
+          "tool": "lookup_order",
+          "input": {
+            "orderId": "O-1003"
+          }
+        },
+        "respond": {
+          "status": "delivered",
+          "daysSinceDelivery": 5
+        }
+      },
+      {
+        "id": "lookup-catch-all",
+        "when": {
+          "tool": "lookup_order"
+        },
+        "respond": {
+          "status": "unknown",
+          "daysSinceDelivery": null
+        }
+      }
+    ]
+  },
+  "palette": {
+    "include": [
+      "manualTrigger",
+      "httpRequest",
+      "splitOut",
+      "agent",
+      "agentTool",
+      "filter",
+      "if",
+      "set",
+      "aggregate",
+      "slack",
+      "noOp"
+    ],
+    "excludeNote": "No Code node: the assertions check how the work is split between the agent and its subagent, so the palette leaves no way around that."
+  },
+  "triggerPayload": {
+    "manualTrigger": [
+      {}
+    ]
+  },
+  "initialWorkflow": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "n1",
+        "name": "When clicking Execute",
+        "type": "manualTrigger",
+        "position": [
+          -280,
+          0
+        ],
+        "parameters": {}
+      }
+    ],
+    "connections": []
+  },
+  "assertions": [
+    {
+      "id": "fetches-requests",
+      "type": "httpCalled",
+      "method": "GET",
+      "path": "/__mock/helpdesk.acme.test/v1/refund-requests",
+      "times": 1,
+      "message": "The requests should be fetched exactly once."
+    },
+    {
+      "id": "uses-an-agent",
+      "type": "nodeExists",
+      "nodeType": "agent",
+      "message": "Deciding a refund is a judgement call; it needs a model."
+    },
+    {
+      "id": "agent-asks-for-decision",
+      "type": "expressionContains",
+      "nodeType": "agent",
+      "param": "outputFields",
+      "substring": "decision",
+      "message": "The agent must declare `decision` as an expected output field."
+    },
+    {
+      "id": "agent-prompt-includes-the-request",
+      "type": "expressionContains",
+      "nodeType": "agent",
+      "param": "userPrompt",
+      "substring": "$json",
+      "message": "The agent's prompt must contain the request it is deciding, not a hardcoded example."
+    },
+    {
+      "id": "has-a-lookup-subagent",
+      "type": "paramEquals",
+      "nodeType": "agentTool",
+      "param": "toolName",
+      "value": "lookup_order",
+      "message": "The agent needs a subagent tool named lookup_order."
+    },
+    {
+      "id": "subagent-attached-to-agent",
+      "type": "connected",
+      "fromType": "agentTool",
+      "toType": "agent",
+      "message": "The lookup subagent has to be attached to the agent's Tools port, or the agent cannot call it."
+    },
+    {
+      "id": "subagent-uses-the-order-id",
+      "type": "expressionContains",
+      "nodeType": "agentTool",
+      "param": "userPrompt",
+      "substring": "$json.orderId",
+      "message": "The subagent's prompt must use the order id the agent passes it."
+    },
+    {
+      "id": "lookups-on-the-cheap-model",
+      "type": "aiCalled",
+      "tool": "lookup_order",
+      "model": "gpt-5-mini",
+      "times": 3,
+      "message": "Three requests need an order lookup, and a lookup is the job for the cheap model."
+    },
+    {
+      "id": "decisions-on-the-capable-model",
+      "type": "aiCalled",
+      "tool": false,
+      "model": "gpt-5",
+      "times": 4,
+      "message": "One decision per request, on the capable model — deciding is where the judgement is."
+    },
+    {
+      "id": "one-summary",
+      "type": "sinkPayloadMatches",
+      "nodeType": "slack",
+      "match": {
+        "channel": "#refunds",
+        "text": "2 refunds approved"
+      },
+      "message": "One summary on #refunds with the count."
+    },
+    {
+      "id": "no-node-errors",
+      "type": "noNodeErrors",
+      "message": "Every node should run without an error."
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "type": "airtable",
+  "label": "Airtable",
+  "group": "integration",
+  "icon": "table",
+  "description": "Lists records from an Airtable table, or creates one.",
+  "credential": true,
+  "credentialType": "airtableTokenApi",
+  "latency": {
+    "base": 260,
+    "perItem": 90
+  },
+  "operations": {
+    "list": {
+      "mode": "runOnceForAllItems",
+      "request": {
+        "method": "GET",
+        "url": "https://api.airtable.test/v0/{baseId}/{table}"
+      },
+      "itemsFrom": "records",
+      "flatten": "fields"
+    },
+    "create": {
+      "mode": "runOncePerItem",
+      "request": {
+        "method": "POST",
+        "url": "https://api.airtable.test/v0/{baseId}/{table}",
+        "body": {
+          "fields": "{fields}"
+        }
+      },
+      "sink": "fields",
+      "emit": {
+        "from": "sent",
+        "path": "fields",
+        "merge": {
+          "created": true
+        },
+        "mergeFromResponse": {
+          "id": "id"
+        }
+      }
+    }
+  },
+  "params": [
+    {
+      "name": "baseId",
+      "label": "Base ID",
+      "type": "string",
+      "placeholder": "app\u2026"
+    },
+    {
+      "name": "table",
+      "label": "Table",
+      "type": "string",
+      "placeholder": "Orders"
+    },
+    {
+      "name": "fields",
+      "label": "Fields",
+      "type": "fields",
+      "showFor": {
+        "operation": "create"
+      }
+    }
+  ],
+  "docs": {
+    "summary": "Lists records from an Airtable table, or creates one.",
+    "mode": "`list` runs once and returns one item per record. `create` runs once per item.",
+    "when": "Use it for data a team maintains by hand \u2014 a CRM, an inventory, a content calendar. Similar territory to Google Sheets, with real field types.",
+    "params": [
+      {
+        "name": "operation",
+        "text": "`list` fetches records. `create` adds one record per item."
+      },
+      {
+        "name": "baseId",
+        "text": "The base's id."
+      },
+      {
+        "name": "table",
+        "text": "The table within the base."
+      },
+      {
+        "name": "fields",
+        "text": "For `create`: the field name and the value to write."
+      }
+    ],
+    "examples": [
+      {
+        "label": "Create one record per item",
+        "code": "operation: create\nfields:    Name   = ={{ $json.customer }}\n           Amount = ={{ $json.total }}"
+      }
+    ],
+    "gotchas": [
+      "Airtable's API nests every record's data under `fields`. This node flattens it for you, so write `{{ $json.Region }}`, not `{{ $json.fields.Region }}`. The record id arrives as `id`.",
+      "Field names are exactly as they appear in Airtable, capital letters and spaces included."
+    ],
+    "seeAlso": [
+      "googleSheets",
+      "postgres"
+    ]
+  }
+}

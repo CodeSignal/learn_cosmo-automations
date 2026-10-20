@@ -1,0 +1,297 @@
+{
+  "version": 1,
+  "bespokeIdentifier": "cosmo-automations",
+  "title": "Route high-value EU orders to the ops channel",
+  "instructions": [
+    "The Acme CRM staging API holds yesterday's orders. Build a workflow that:",
+    "1. Fetches GET https://api.acme-crm.test/v1/orders?since=2026-07-30 using the Acme CRM credential.",
+    "2. Splits the response's `orders` array into one item per order.",
+    "3. Keeps only orders where region is EU and total is strictly greater than 1000.",
+    "4. Aggregates the survivors into a single item with `count` and `total`.",
+    "5. Posts to Slack channel #ops-alerts with the text exactly:",
+    "   <count> EU orders over $1000 \u2014 total $<total>"
+  ],
+  "palette": {
+    "include": [
+      "manualTrigger",
+      "webhook",
+      "httpRequest",
+      "set",
+      "if",
+      "filter",
+      "splitOut",
+      "aggregate",
+      "slack"
+    ],
+    "exclude": [],
+    "excludeNote": "Code is deliberately not offered: this task teaches the item model through Split Out / Filter / Aggregate, and the assertions check that mechanism. A scenario that offers Code must assert on outcomes instead \u2014 see the README authoring guide."
+  },
+  "initialWorkflow": {
+    "nodes": [
+      {
+        "id": "n_trigger",
+        "name": "When clicking Execute",
+        "type": "manualTrigger",
+        "position": [
+          80,
+          240
+        ],
+        "parameters": {}
+      }
+    ],
+    "connections": []
+  },
+  "credentialTypes": [
+    {
+      "name": "acmeCrmApi",
+      "label": "Acme CRM API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "X-Api-Key",
+          "value": "{apiKey}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "apiKey",
+          "label": "API Key",
+          "type": "password",
+          "placeholder": "sk_test_\u2026"
+        }
+      ],
+      "docs": "Acme CRM \u2192 Settings \u2192 API keys. The task statement has the staging key."
+    },
+    {
+      "name": "slackApi",
+      "label": "Slack API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {token}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "token",
+          "label": "Bot User OAuth Token",
+          "type": "password",
+          "placeholder": "xoxb-\u2026"
+        }
+      ],
+      "docs": "Slack \u2192 Your apps \u2192 OAuth & Permissions \u2192 Bot User OAuth Token."
+    }
+  ],
+  "mockApi": {
+    "hosts": {
+      "api.acme-crm.test": {
+        "requireAuth": {
+          "header": "X-Api-Key",
+          "equals": "sk_test_FAKE_2f9a1c"
+        },
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/v1/orders",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "missing or invalid api key"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/v1/orders",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "since": "2026-07-30",
+              "count": 12,
+              "orders": [
+                {
+                  "id": "AC-4801",
+                  "region": "EU",
+                  "total": 1420,
+                  "customer": "Nordwind GmbH"
+                },
+                {
+                  "id": "AC-4802",
+                  "region": "US",
+                  "total": 5300,
+                  "customer": "Redwood Labs"
+                },
+                {
+                  "id": "AC-4803",
+                  "region": "EU",
+                  "total": 640,
+                  "customer": "Bruges Interiors"
+                },
+                {
+                  "id": "AC-4804",
+                  "region": "APAC",
+                  "total": 2200,
+                  "customer": "Kirin Systems"
+                },
+                {
+                  "id": "AC-4805",
+                  "region": "EU",
+                  "total": 1000,
+                  "customer": "Lisbon Freight"
+                },
+                {
+                  "id": "AC-4806",
+                  "region": "EU",
+                  "total": 2100,
+                  "customer": "Alpina Retail"
+                },
+                {
+                  "id": "AC-4807",
+                  "region": "US",
+                  "total": 180,
+                  "customer": "Boise Tooling"
+                },
+                {
+                  "id": "AC-4808",
+                  "region": "EU",
+                  "total": 95,
+                  "customer": "Cork Organics"
+                },
+                {
+                  "id": "AC-4809",
+                  "region": "APAC",
+                  "total": 1750,
+                  "customer": "Marina Trading"
+                },
+                {
+                  "id": "AC-4810",
+                  "region": "EU",
+                  "total": 1180,
+                  "customer": "Vantaa Metals"
+                },
+                {
+                  "id": "AC-4811",
+                  "region": "US",
+                  "total": 3400,
+                  "customer": "Cascade Freight"
+                },
+                {
+                  "id": "AC-4812",
+                  "region": "EU",
+                  "total": 870,
+                  "customer": "Utrecht Print"
+                }
+              ]
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v1/orders/:id/flag",
+            "status": 202,
+            "body": {
+              "ok": true
+            }
+          }
+        ]
+      },
+      "slack.test": {
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/api/chat.postMessage",
+            "status": 200,
+            "body": {
+              "ok": true,
+              "ts": "1753948800.000100"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "triggerPayload": {
+    "manualTrigger": {},
+    "webhook": {
+      "body": {
+        "region": "EU",
+        "total": 1420
+      },
+      "headers": {
+        "content-type": "application/json"
+      },
+      "query": {}
+    }
+  },
+  "vars": {},
+  "env": {},
+  "limits": {
+    "maxNodes": 40,
+    "maxItems": 5000,
+    "maxExecutionMs": 5000
+  },
+  "assertions": [
+    {
+      "id": "fetches-orders",
+      "type": "httpCalled",
+      "method": "GET",
+      "path": "/__mock/api.acme-crm.test/v1/orders",
+      "times": 1,
+      "message": "The workflow should call the Acme CRM orders endpoint exactly once."
+    },
+    {
+      "id": "splits-orders-array",
+      "type": "nodeExists",
+      "nodeType": "splitOut",
+      "message": "The response is one item holding an array \u2014 it needs splitting into one item per order."
+    },
+    {
+      "id": "filters-on-region",
+      "type": "expressionContains",
+      "nodeType": "filter|if",
+      "param": "conditions",
+      "substring": "$json.region",
+      "message": "Filtering should read the region field off each order."
+    },
+    {
+      "id": "keeps-three-orders",
+      "type": "itemCount",
+      "nodeType": "aggregate",
+      "port": "in",
+      "comparison": "exactly",
+      "count": 3,
+      "message": "Exactly 3 orders are EU with a total strictly over 1000."
+    },
+    {
+      "id": "aggregates-to-one-item",
+      "type": "itemCount",
+      "nodeType": "aggregate",
+      "port": "out",
+      "comparison": "exactly",
+      "count": 1,
+      "message": "The survivors must be aggregated into a single item before posting."
+    },
+    {
+      "id": "posts-to-ops-channel",
+      "type": "sinkPayloadMatches",
+      "nodeType": "slack",
+      "match": {
+        "channel": "#ops-alerts",
+        "text": "3 EU orders over $1000 \u2014 total $4700"
+      },
+      "message": "Slack should receive one message on #ops-alerts with the required text."
+    },
+    {
+      "id": "slack-called-once",
+      "type": "httpCalled",
+      "method": "POST",
+      "path": "/__mock/slack.test/api/chat.postMessage",
+      "times": 1,
+      "message": "Exactly one Slack message should be sent, not one per order."
+    },
+    {
+      "id": "no-node-errors",
+      "type": "noNodeErrors",
+      "message": "Every node should complete without an error."
+    }
+  ]
+}

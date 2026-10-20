@@ -1,0 +1,124 @@
+{
+  "type": "postgres",
+  "label": "Postgres",
+  "group": "integration",
+  "icon": "database",
+  "description": "Runs a query against a Postgres database, or inserts a row.",
+  "credential": true,
+  "credentialType": "postgresApi",
+  "latency": {
+    "base": 200,
+    "perItem": 40
+  },
+  "operations": {
+    "executeQuery": {
+      "mode": "runOnceForAllItems",
+      "request": {
+        "method": "POST",
+        "url": "https://db.internal.test/query",
+        "body": {
+          "query": "{query}"
+        }
+      },
+      "require": [
+        "query"
+      ],
+      "itemsFrom": "rows"
+    },
+    "insert": {
+      "mode": "runOncePerItem",
+      "request": {
+        "method": "POST",
+        "url": "https://db.internal.test/insert/{table}",
+        "body": {
+          "table": "{table}",
+          "row": "{columns}"
+        }
+      },
+      "require": [
+        "table"
+      ],
+      "sink": true,
+      "emit": {
+        "from": "sent",
+        "path": "row",
+        "merge": {
+          "inserted": true
+        }
+      }
+    }
+  },
+  "params": [
+    {
+      "name": "query",
+      "label": "Query",
+      "type": "string",
+      "multiline": true,
+      "mono": true,
+      "showFor": {
+        "operation": "executeQuery"
+      },
+      "placeholder": "SELECT id, region, total FROM orders WHERE total > 1000"
+    },
+    {
+      "name": "table",
+      "label": "Table",
+      "type": "string",
+      "showFor": {
+        "operation": "insert"
+      }
+    },
+    {
+      "name": "columns",
+      "label": "Columns",
+      "type": "fields",
+      "showFor": {
+        "operation": "insert"
+      },
+      "hint": "The column name and the value to write, one row per item."
+    }
+  ],
+  "docs": {
+    "summary": "Runs a SQL query against a database, or inserts a row.",
+    "mode": "`executeQuery` runs once and returns one item per row. `insert` runs once per item.",
+    "when": "Use it when the data lives in your own database rather than behind an API \u2014 much of the useful data in a real company does.",
+    "params": [
+      {
+        "name": "operation",
+        "text": "`executeQuery` runs the SQL you write. `insert` writes one row per item, without you writing SQL."
+      },
+      {
+        "name": "query",
+        "text": "The SQL. Expressions are allowed, so a query can be built from the incoming item."
+      },
+      {
+        "name": "table",
+        "text": "For `insert`: the table to write to."
+      },
+      {
+        "name": "columns",
+        "text": "For `insert`: the column name and the value, one row per item."
+      }
+    ],
+    "examples": [
+      {
+        "label": "One item per returned row",
+        "code": "SELECT id, region, total FROM orders WHERE total > 1000"
+      },
+      {
+        "label": "Insert one row per item",
+        "code": "operation: insert\ntable:     flagged_orders\ncolumns:   order_id = ={{ $json.id }}\n           reason   = high value"
+      }
+    ],
+    "gotchas": [
+      "A query returning no rows gives you 0 items, which makes every node after it report \"no items\". That is the query, not the workflow.",
+      "`insert` runs once per item, so it writes as many rows as it received items.",
+      "Inside this simulation every service \u2014 including the database \u2014 sits behind the same fixture layer, so the run log shows the query as a call to a mock host. One default-deny transport for everything is worth more here than imitating the Postgres wire protocol."
+    ],
+    "seeAlso": [
+      "googleSheets",
+      "airtable",
+      "httpRequest"
+    ]
+  }
+}

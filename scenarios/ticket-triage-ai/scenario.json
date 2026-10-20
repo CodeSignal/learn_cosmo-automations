@@ -1,0 +1,371 @@
+{
+  "version": 1,
+  "bespokeIdentifier": "cosmo-automations",
+  "title": "Triage support tickets with an AI agent",
+  "instructions": [
+    "Six open tickets need triaging. A rule cannot classify free text, so this one needs a model — but the model is the expensive part of the workflow, and the task is as much about using it well as about using it.",
+    "Build a workflow that:",
+    "1. Fetches the open tickets from `https://helpdesk.acme.test/v1/tickets` using the Helpdesk credential.",
+    "2. Classifies each ticket with an AI Agent. Ask it for a `category` and a `severity` from 1 to 5, and declare both as the agent's expected output fields. The prompt must contain the ticket being classified — not a hardcoded example.",
+    "3. Use `gpt-5-mini`. Triage does not need the expensive model, and one call per ticket is already six calls.",
+    "4. Keeps only the tickets with a severity of 4 or more.",
+    "5. Before anything is sent, a human has to confirm. Add an approval step with the prompt `Escalate these tickets to the on-call engineer?`, and wire BOTH paths — a rejection should go to a No Operation node named `Hold For Review`, not into nothing.",
+    "6. On approval, posts one message to Slack on `#support` reading exactly `3 tickets need a human today`."
+  ],
+  "ai": {
+    "mode": "replay",
+    "models": [
+      "gpt-5",
+      "gpt-5-mini"
+    ],
+    "live": {
+      "enabled": true,
+      "provider": "openai",
+      "models": {
+        "gpt-5": "gpt-5",
+        "gpt-5-mini": "gpt-5-mini"
+      }
+    },
+    "fixtures": [
+      {
+        "id": "classify-T-01",
+        "when": {
+          "input": {
+            "ticket": "T-01"
+          }
+        },
+        "respond": {
+          "category": "billing",
+          "severity": 4
+        }
+      },
+      {
+        "id": "classify-T-02",
+        "when": {
+          "input": {
+            "ticket": "T-02"
+          }
+        },
+        "respond": {
+          "category": "question",
+          "severity": 1
+        }
+      },
+      {
+        "id": "classify-T-03",
+        "when": {
+          "input": {
+            "ticket": "T-03"
+          }
+        },
+        "respond": {
+          "category": "technical",
+          "severity": 5
+        }
+      },
+      {
+        "id": "classify-T-04",
+        "when": {
+          "input": {
+            "ticket": "T-04"
+          }
+        },
+        "respond": {
+          "category": "billing",
+          "severity": 3
+        }
+      },
+      {
+        "id": "classify-T-05",
+        "when": {
+          "input": {
+            "ticket": "T-05"
+          }
+        },
+        "respond": {
+          "category": "technical",
+          "severity": 5
+        }
+      },
+      {
+        "id": "classify-T-06",
+        "when": {
+          "input": {
+            "ticket": "T-06"
+          }
+        },
+        "respond": {
+          "category": "feature",
+          "severity": 1
+        }
+      },
+      {
+        "id": "catch-all",
+        "when": {},
+        "respond": {
+          "category": "question",
+          "severity": 1
+        }
+      }
+    ]
+  },
+  "palette": {
+    "include": [
+      "manualTrigger",
+      "scheduleTrigger",
+      "httpRequest",
+      "agent",
+      "filter",
+      "if",
+      "switch",
+      "set",
+      "splitOut",
+      "aggregate",
+      "sort",
+      "limit",
+      "approval",
+      "noOp",
+      "slack"
+    ],
+    "exclude": [],
+    "excludeNote": "Code is not offered: the assertions name the mechanism (an Agent with declared output fields, a Filter on severity), and a Code node returning the same rows would be rejected for the wrong reason."
+  },
+  "initialWorkflow": {
+    "nodes": [
+      {
+        "id": "n1",
+        "name": "When clicking Execute",
+        "type": "manualTrigger",
+        "position": [
+          -280,
+          0
+        ],
+        "parameters": {}
+      }
+    ],
+    "connections": []
+  },
+  "credentialTypes": [
+    {
+      "name": "helpdeskApi",
+      "label": "Helpdesk API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "X-Api-Key",
+          "value": "{apiKey}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "apiKey",
+          "label": "API Key",
+          "type": "password",
+          "placeholder": "hd_test_…"
+        }
+      ],
+      "docs": "Helpdesk → Settings → API keys."
+    },
+    {
+      "name": "slackApi",
+      "label": "Slack API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {token}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "token",
+          "label": "Bot User OAuth Token",
+          "type": "password",
+          "placeholder": "xoxb-…"
+        }
+      ],
+      "docs": "Slack → Your apps → OAuth & Permissions."
+    }
+  ],
+  "mockApi": {
+    "defaultDeny": true,
+    "hosts": {
+      "helpdesk.acme.test": {
+        "requireAuth": {
+          "header": "X-Api-Key",
+          "equals": "hd_test_FAKE_71c0"
+        },
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/v1/tickets",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "missing or invalid api key"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/v1/tickets",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "count": 6,
+              "tickets": [
+                {
+                  "ticket": "T-01",
+                  "subject": "Card declined at checkout",
+                  "customer": "Nordwind"
+                },
+                {
+                  "ticket": "T-02",
+                  "subject": "How do I export to CSV?",
+                  "customer": "Redwood"
+                },
+                {
+                  "ticket": "T-03",
+                  "subject": "500 error on /api/orders",
+                  "customer": "Kirin"
+                },
+                {
+                  "ticket": "T-04",
+                  "subject": "Invoice shows the wrong VAT",
+                  "customer": "Alpina"
+                },
+                {
+                  "ticket": "T-05",
+                  "subject": "App crashes on startup",
+                  "customer": "Utrecht"
+                },
+                {
+                  "ticket": "T-06",
+                  "subject": "Can you add dark mode?",
+                  "customer": "Cork"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "slack.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer xoxb-FAKE-000000-000000"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/api/chat.postMessage",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "triggerPayload": {
+    "manualTrigger": [
+      {}
+    ]
+  },
+  "vars": {},
+  "env": {},
+  "limits": {
+    "maxNodes": 40,
+    "maxItems": 5000,
+    "maxExecutionMs": 8000,
+    "maxSimulatedMs": 6000
+  },
+  "assertions": [
+    {
+      "id": "fetches-tickets",
+      "type": "httpCalled",
+      "method": "GET",
+      "path": "/__mock/helpdesk.acme.test/v1/tickets",
+      "times": 1,
+      "message": "The ticket list should be fetched exactly once."
+    },
+    {
+      "id": "uses-an-agent",
+      "type": "nodeExists",
+      "nodeType": "agent",
+      "message": "Classifying free text needs a model; no rule can do it."
+    },
+    {
+      "id": "prompt-includes-the-ticket",
+      "type": "expressionContains",
+      "nodeType": "agent",
+      "param": "userPrompt",
+      "substring": "$json.",
+      "message": "The prompt must contain the ticket being classified. A prompt with a hardcoded example asks the same question for every item."
+    },
+    {
+      "id": "asks-for-severity",
+      "type": "expressionContains",
+      "nodeType": "agent",
+      "param": "outputFields",
+      "substring": "severity",
+      "message": "The agent must declare `severity` as an expected output field, or nothing downstream can filter on it."
+    },
+    {
+      "id": "asks-for-category",
+      "type": "expressionContains",
+      "nodeType": "agent",
+      "param": "outputFields",
+      "substring": "category",
+      "message": "The agent must declare `category` as an expected output field."
+    },
+    {
+      "id": "one-cheap-call-per-ticket",
+      "type": "aiCalled",
+      "model": "gpt-5-mini",
+      "times": 6,
+      "message": "Six tickets, six calls, on gpt-5-mini. Using the expensive model, or classifying all six in one call, is the wrong trade here."
+    },
+    {
+      "id": "three-escalations",
+      "type": "itemCount",
+      "nodeType": "filter",
+      "port": "out",
+      "comparison": "exactly",
+      "count": 3,
+      "message": "Three of the six tickets come back at severity 4 or more."
+    },
+    {
+      "id": "waits-for-a-human",
+      "type": "nodeExists",
+      "nodeType": "approval",
+      "message": "Nothing should be sent to the on-call engineer without a person confirming."
+    },
+    {
+      "id": "rejection-goes-somewhere",
+      "type": "connected",
+      "fromType": "approval",
+      "toType": "noOp",
+      "fromOutput": 1,
+      "message": "Wire the rejected path too. An unconnected output silently discards the items, which is rarely what anyone wants."
+    },
+    {
+      "id": "one-summary",
+      "type": "sinkPayloadMatches",
+      "nodeType": "slack",
+      "match": {
+        "channel": "#support",
+        "text": "3 tickets need a human today"
+      },
+      "message": "One summary on #support with the count."
+    },
+    {
+      "id": "no-node-errors",
+      "type": "noNodeErrors",
+      "message": "Every node should complete without an error."
+    }
+  ],
+  "approvals": {
+    "Confirm Escalation": "approve"
+  }
+}

@@ -1,0 +1,236 @@
+/*
+ * React Flow → design system token bridge.
+ *
+ * Loaded AFTER @xyflow/react's own stylesheet so these win. Every value maps to
+ * a semantic design system token, which is what makes dark mode work for free
+ * via prefers-color-scheme — there is not a single literal colour in here.
+ */
+
+.react-flow {
+  --xy-background-color: var(--Colors-Surface-App-Base);
+  --xy-background-pattern-color: var(--Colors-Border-Soft);
+
+  --xy-node-background-color: var(--Colors-Surface-Container-Base);
+  --xy-node-color: var(--Colors-Text-Body-Default);
+  --xy-node-border: 1px solid var(--Colors-Border-Soft);
+  --xy-node-border-radius: var(--UI-Radius-radius-m);
+  --xy-node-boxshadow-hover: none;
+  --xy-node-boxshadow-selected: none;
+
+  --xy-edge-stroke: var(--Colors-Border-Stronger);
+  --xy-edge-stroke-selected: var(--Colors-Primary-Default);
+  --xy-edge-stroke-width: 1.5;
+  --xy-connectionline-stroke: var(--Colors-Primary-Default);
+  --xy-connectionline-stroke-width: 2;
+
+  --xy-handle-background-color: var(--Colors-Surface-Container-Base);
+  --xy-handle-border-color: var(--Colors-Border-Stronger);
+
+  --xy-selection-background-color: var(--Colors-Emphasis-Primary-Subtle);
+  --xy-selection-border: 1px dashed var(--Colors-Border-Highlight);
+
+  --xy-controls-button-background-color: var(--Colors-Surface-Container-Base);
+  --xy-controls-button-background-color-hover: var(--Colors-Control-Neutral-Soft);
+  --xy-controls-button-color: var(--Colors-Icon-Default);
+  --xy-controls-button-color-hover: var(--Colors-Icon-Strong);
+  --xy-controls-button-border-color: var(--Colors-Border-Subtle);
+
+  --xy-attribution-background-color: transparent;
+
+  font-family: var(--body-family, 'Work Sans'), system-ui, sans-serif;
+  background: var(--Colors-Surface-App-Base);
+}
+
+/*
+ * Handles. Inputs are a short bar on the tile's left edge, outputs a dot on
+ * its right: two shapes, so the direction of flow is readable without colour.
+ */
+.react-flow__handle {
+  border-width: 1.5px;
+  border-color: var(--Colors-Border-Stronger);
+  background: var(--Colors-Surface-Container-Base);
+}
+
+.react-flow__handle-left {
+  width: 8px;
+  height: 18px;
+  border-radius: var(--UI-Radius-radius-min);
+}
+
+.react-flow__handle-right {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.react-flow__handle:hover,
+.react-flow__handle.connectingfrom,
+.react-flow__handle.connectingto,
+.react-flow__handle.valid {
+  background: var(--Colors-Primary-Default);
+  border-color: var(--Colors-Primary-Default);
+}
+
+/* Our node bodies are our own tiles, so strip React Flow's chrome. */
+.react-flow__node-automation {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  width: auto;
+}
+
+.react-flow__node-automation.selected,
+.react-flow__node-automation:hover { box-shadow: none; }
+
+/* The hover toolbar must sit above neighbouring nodes, not under them. */
+.react-flow__node-automation:hover,
+.react-flow__node-automation:focus-within { z-index: 10 !important; }
+
+.react-flow__node:focus-visible { outline: none; }
+
+.react-flow__node:focus-visible .ca-node {
+  outline: 2px solid var(--Colors-Border-Focus-Visible);
+  outline-offset: 4px;
+}
+
+/* ── edges ───────────────────────────────────────────────────────────── */
+
+.react-flow__edge-path { stroke-linecap: round; }
+
+/*
+ * The halo under each wire: canvas-coloured and a little wider, so where one
+ * wire crosses another it leaves a small gap in the one beneath.
+ */
+.ca-edge-halo {
+  fill: none;
+  stroke: var(--Colors-Surface-App-Base);
+  stroke-width: 6;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+/*
+ * Hovering a node or a wire picks out its wires and fades the rest; a
+ * selected node's wires are drawn heavier without fading anything.
+ */
+.react-flow__edge.is-related .react-flow__edge-path { stroke-width: 2.75; }
+
+.react-flow__edge.is-related:not(.ca-edge-active) .react-flow__edge-path {
+  stroke: var(--Colors-Border-Highlight-Strong);
+}
+
+.react-flow__edge.is-dimmed { opacity: 0.22; }
+.react-flow__edge.is-dimmed .ca-edge-halo { display: none; }
+
+.ca-edge-label { transition: opacity 0.12s ease; }
+.ca-edge-label.is-dimmed { opacity: 0.3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-edge-label { transition: none; }
+}
+
+.react-flow__edge:hover .react-flow__edge-path { stroke: var(--Colors-Border-Highlight-Strong); }
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--Colors-Primary-Default);
+  stroke-width: 2;
+}
+
+/* After a run: a wire that carried items is green, one that carried none is dashed. */
+.react-flow__edge.ca-edge-active .react-flow__edge-path {
+  stroke: var(--Colors-Alert-Success-Default);
+  stroke-width: 2;
+}
+
+.react-flow__edge.ca-edge-empty .react-flow__edge-path {
+  stroke-dasharray: 5 5;
+}
+
+.ca-edge-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-xxs);
+  pointer-events: all;
+}
+
+.ca-edge-count {
+  padding: 0 var(--UI-Spacing-spacing-xs);
+  border-radius: var(--UI-Radius-radius-mxl);
+  background: var(--Colors-Surface-App-Base);
+  color: var(--Colors-Alert-Success-Medium-Dark);
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-edge-count.is-empty { color: var(--Colors-Text-Body-Lighter); }
+
+.ca-edge-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--Colors-Border-Soft);
+  border-radius: var(--UI-Radius-radius-xs);
+  background: var(--Colors-Surface-Container-Highest);
+  color: var(--Colors-Icon-Default);
+  box-shadow: 0 2px 6px var(--Colors-Emphasis-Shadow-Soft);
+  cursor: pointer;
+}
+
+.ca-edge-delete:hover {
+  background: var(--Colors-Alert-Error-Lighter);
+  border-color: var(--Colors-Alert-Error-Medium);
+  color: var(--Colors-Alert-Error-Default);
+}
+
+/* ── subagents ──────────────────────────────────────────────────────── */
+
+/*
+ * The Tools port and a tool's output are diamonds, so they never read as data
+ * ports, and a tool wire is dashed in the AI hue: it means "may call", not
+ * "sends items".
+ */
+.react-flow__handle.ca-handle-tool {
+  width: 11px;
+  height: 11px;
+  border-radius: var(--UI-Radius-radius-min);
+  border-color: var(--Colors-Control-Progress-Midnight-Blue-Thumb);
+}
+
+.react-flow__handle.ca-handle-tool.react-flow__handle-top {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.react-flow__handle.ca-handle-tool.react-flow__handle-bottom {
+  transform: translate(-50%, 50%) rotate(45deg);
+}
+
+.react-flow__edge.ca-edge-tool .react-flow__edge-path {
+  stroke: var(--Colors-Control-Progress-Midnight-Blue-Thumb);
+  stroke-dasharray: 6 5;
+}
+
+/* ── controls ────────────────────────────────────────────────────────── */
+
+.react-flow__controls {
+  box-shadow: 0 2px 8px var(--Colors-Emphasis-Shadow-Subtle);
+  border: 1px solid var(--Colors-Border-Soft);
+  border-radius: var(--UI-Radius-radius-s);
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  width: 30px;
+  height: 30px;
+  border-bottom: 1px solid var(--Colors-Border-Subtle);
+}
+
+.react-flow__controls-button:last-child { border-bottom: none; }
+.react-flow__controls-button svg { fill: currentColor; max-width: 12px; max-height: 12px; }

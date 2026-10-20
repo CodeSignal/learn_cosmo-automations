@@ -1,0 +1,537 @@
+/*
+ * The shell: header, workspace layout, the floating execute bar, the logs
+ * panel, toasts, and the corrections the design system modal needs.
+ *
+ *   ┌ header ──────────────────────────────────────────────────────────┐
+ *   ├ node panel ┬ canvas ─────────────────────────────────────────────┤
+ *   │            │                    [ ▶ Execute Workflow ]           │
+ *   │            ├ logs bar ───────────────────────────────────────────┤
+ *   └────────────┴──────────────────────────────────────────────────────┘
+ *
+ * The node detail view is an overlay over the whole workspace (detail.css).
+ */
+
+.ca-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--Colors-Surface-App-Base);
+}
+
+/* ── header ──────────────────────────────────────────────────────────── */
+
+/*
+ * 48px, because the platform overlays its reset control 56px from the top of
+ * the preview (docs/engine-config-request.md) — just under this bar.
+ */
+.ca-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--UI-Spacing-spacing-ms);
+  height: 48px;
+  flex: 0 0 auto;
+  padding: 0 var(--UI-Spacing-spacing-ms);
+  border-bottom: 1px solid var(--Colors-Border-Subtle);
+  background: var(--Colors-Surface-Nav-Base);
+}
+
+.ca-header-start,
+.ca-header-end {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.ca-header-start { gap: var(--UI-Spacing-spacing-mxs); }
+.ca-header-end { gap: var(--UI-Spacing-spacing-xxs); flex: 0 0 auto; }
+
+/*
+ * The Cosmo product mark sits on a brand-coloured tile, so the white mask reads
+ * against either theme's header without needing a second asset.
+ */
+.ca-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: var(--UI-Radius-radius-xs);
+  background: var(--Colors-Primary-Default);
+  color: var(--Colors-Text-Body-White);
+}
+
+.ca-brand-mark .icon { width: 20px; height: 20px; }
+
+.ca-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-xs);
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.ca-breadcrumb-product { color: var(--Colors-Text-Body-Light); }
+.ca-breadcrumb-sep { color: var(--Colors-Text-Body-Lighter); }
+
+.ca-breadcrumb-title {
+  color: var(--Colors-Text-Body-Strong);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Save state: reserved width, so nothing to its right ever shifts. */
+.ca-save {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-xxs);
+  min-width: 76px;
+  color: var(--Colors-Text-Body-Lighter);
+  white-space: nowrap;
+}
+
+.ca-save-error { color: var(--Colors-Alert-Error-Default); }
+
+.ca-header-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-min);
+}
+
+.ca-divider-v {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  margin: 0 var(--UI-Spacing-spacing-xs);
+  background: var(--Colors-Border-Soft);
+}
+
+/*
+ * Quiet header actions: the design system's text button, given a hit area and
+ * a hover surface so it reads as a toolbar button rather than a link.
+ */
+.ca-header .ca-header-button {
+  height: var(--UI-Input-xs);
+  padding: 0 var(--UI-Spacing-spacing-s);
+  align-items: center;
+  border-radius: var(--UI-Radius-radius-xs);
+  border-bottom: none;
+  color: var(--Colors-Text-Body-Medium);
+  font-weight: 500;
+}
+
+.ca-header .ca-header-button:hover,
+.ca-header .ca-header-button:focus-visible {
+  background: var(--Colors-Control-Neutral-Soft);
+  color: var(--Colors-Text-Body-Strong);
+  border-bottom: none;
+}
+
+.ca-header .ca-header-button:focus:not(:focus-visible) { border-bottom: none; }
+
+.ca-count-badge {
+  min-width: 18px;
+  padding: 0 var(--UI-Spacing-spacing-xxs);
+  border-radius: var(--UI-Radius-radius-mxl);
+  background: var(--Colors-Control-Neutral-Medium);
+  color: var(--Colors-Text-Body-Medium);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Narrow panes: shed the least load-bearing text first. */
+@media (max-width: 980px) {
+  .ca-breadcrumb-product,
+  .ca-breadcrumb-sep { display: none; }
+}
+
+@media (max-width: 820px) {
+  .ca-header .ca-button-label { display: none; }
+  .ca-save { min-width: 0; }
+  .ca-save span { display: none; }
+}
+
+/* ── workspace ───────────────────────────────────────────────────────── */
+
+.ca-workspace {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.ca-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ca-canvas-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * Top-left canvas tools. Top-LEFT because the platform's reset control sits at
+ * the canvas's top-right corner.
+ */
+.ca-canvas-tools {
+  position: absolute;
+  top: var(--UI-Spacing-spacing-ms);
+  left: var(--UI-Spacing-spacing-ms);
+  z-index: 5;
+  display: flex;
+  gap: var(--UI-Spacing-spacing-s);
+}
+
+.ca-canvas-tool.button-secondary {
+  background: var(--Colors-Surface-Container-Base);
+  box-shadow: 0 2px 8px var(--Colors-Emphasis-Shadow-Subtle);
+}
+
+/* The one Execute Workflow button, floating at the bottom of the canvas. */
+.ca-execute-bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--UI-Spacing-spacing-ml);
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+}
+
+.ca-execute-button {
+  box-shadow: 0 4px 14px var(--Colors-Emphasis-Shadow-Medium);
+}
+
+/* Disabled while running, but the spinner says why — so keep it legible. */
+.ca-execute-button:disabled { opacity: 0.8; }
+
+.ca-toast {
+  position: absolute;
+  top: var(--UI-Spacing-spacing-ms);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  max-width: min(560px, calc(100% - var(--UI-Spacing-spacing-xxxl)));
+  padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-ms);
+  border-radius: var(--UI-Radius-radius-s);
+  background: var(--Colors-Backgrounds-Main-Black);
+  color: var(--Colors-Surface-App-High);
+  box-shadow: 0 6px 20px var(--Colors-Emphasis-Shadow-Medium);
+}
+
+.ca-loading {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--Colors-Text-Body-Light);
+}
+
+/* ── logs ────────────────────────────────────────────────────────────── */
+
+.ca-logs {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--Colors-Border-Soft);
+  background: var(--Colors-Surface-Container-Base);
+}
+
+.ca-logs.is-open { height: min(300px, 42%); }
+
+.ca-logs-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-mxs);
+  height: 40px;
+  flex: 0 0 auto;
+  padding: 0 var(--UI-Spacing-spacing-s) 0 var(--UI-Spacing-spacing-xs);
+}
+
+.ca-logs.is-open .ca-logs-bar { border-bottom: 1px solid var(--Colors-Border-Subtle); }
+
+.ca-logs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-xs);
+  height: var(--UI-Input-min);
+  padding: 0 var(--UI-Spacing-spacing-s);
+  border: none;
+  border-radius: var(--UI-Radius-radius-xs);
+  background: none;
+  color: var(--Colors-Text-Body-Strong);
+  cursor: pointer;
+}
+
+.ca-logs-toggle:hover { background: var(--Colors-Control-Neutral-Soft); }
+.ca-logs-title { font-weight: 600; }
+
+.ca-run-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-xs);
+  min-width: 0;
+  color: var(--Colors-Text-Body-Medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ca-run-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--Colors-Border-Strong);
+}
+
+.ca-run-state-ok .ca-run-dot { background: var(--Colors-Alert-Success-Default); }
+.ca-run-state-error .ca-run-dot { background: var(--Colors-Alert-Error-Default); }
+.ca-run-state-warn .ca-run-dot { background: var(--Colors-Alert-Warning-Default); }
+.ca-run-state-error { color: var(--Colors-Alert-Error-Default); }
+.ca-run-state-idle { color: var(--Colors-Text-Body-Lighter); }
+.ca-run-state-busy { color: var(--Colors-Text-Body-Primary); }
+
+.ca-logs-meta {
+  color: var(--Colors-Text-Body-Lighter);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-logs-chevron { margin-left: auto; }
+
+.ca-logs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ca-logs-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-xxs);
+  padding: var(--UI-Spacing-spacing-ml) var(--UI-Spacing-spacing-mxl);
+  color: var(--Colors-Text-Body-Medium);
+}
+
+.ca-logs-empty .body-xsmall { color: var(--Colors-Text-Body-Lighter); }
+
+.ca-logs-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--UI-Spacing-spacing-xxs) 0 var(--UI-Spacing-spacing-s);
+}
+
+/*
+ * One row per node, on a grid so the columns line up down the list:
+ *   status · node · items · time · details
+ */
+.ca-log-row {
+  display: grid;
+  grid-template-columns: 20px minmax(160px, 240px) 130px 64px minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--UI-Spacing-spacing-mxs);
+  padding: var(--UI-Spacing-spacing-xxs) var(--UI-Spacing-spacing-ms);
+  color: var(--Colors-Text-Body-Medium);
+}
+
+.ca-log-row:hover { background: var(--Colors-Surface-App-Subtle); }
+
+.ca-log-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--Colors-Icon-Default);
+}
+
+.ca-log-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--Colors-Border-Strong);
+}
+
+.ca-log-row.is-success .ca-log-status,
+.ca-log-row-sink .ca-log-status {
+  background: var(--Colors-Alert-Success-Lighter);
+  color: var(--Colors-Alert-Success-Default);
+}
+
+.ca-log-row.is-error .ca-log-status {
+  background: var(--Colors-Alert-Error-Lighter);
+  color: var(--Colors-Alert-Error-Default);
+}
+
+.ca-log-row.is-paused .ca-log-status,
+.ca-log-row.is-noItems .ca-log-status {
+  background: var(--Colors-Alert-Warning-Lighter);
+  color: var(--Colors-Alert-Warning-Dark);
+}
+
+.ca-log-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--Colors-Text-Body-Strong);
+  font-weight: 500;
+  text-align: left;
+}
+
+button.ca-log-name { cursor: pointer; }
+button.ca-log-name:hover .ca-log-name-text { text-decoration: underline; }
+
+.ca-log-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-log-items,
+.ca-log-time {
+  color: var(--Colors-Text-Body-Light);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-log-time { color: var(--Colors-Text-Body-Lighter); text-align: right; }
+
+.ca-log-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-min);
+  min-width: 0;
+}
+
+.ca-log-detail {
+  color: var(--Colors-Text-Body-Light);
+  overflow-wrap: anywhere;
+}
+
+.ca-log-detail-muted { color: var(--Colors-Text-Body-Lighter); }
+.ca-log-detail-error { color: var(--Colors-Alert-Error-Default); }
+
+.ca-log-row-sink { grid-template-columns: 20px minmax(160px, 240px) minmax(0, 1fr); }
+
+/* ── approval prompt ─────────────────────────────────────────────────── */
+
+.ca-approval {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-mxs);
+  margin: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-ms) var(--UI-Spacing-spacing-xxs);
+  padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-mxs);
+  border: 1px solid var(--Colors-Alert-Warning-Medium);
+  border-radius: var(--UI-Radius-radius-s);
+  background: var(--Colors-Alert-Warning-Lighter);
+}
+
+.ca-approval-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--Colors-Alert-Warning-Light);
+  color: var(--Colors-Alert-Warning-Dark);
+}
+
+.ca-approval-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-min);
+  min-width: 0;
+}
+
+.ca-approval-prompt { color: var(--Colors-Alert-Warning-Dark); font-weight: 600; }
+.ca-approval-meta { color: var(--Colors-Alert-Warning-Dark); }
+
+.ca-approval-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--UI-Spacing-spacing-xs);
+  flex: 0 0 auto;
+}
+
+/* ── design system modal, corrected ──────────────────────────────────── */
+
+/*
+ * `.modal-header` is published at a fixed 48px with 24px of top AND bottom
+ * padding, so its content box collapses to zero and the title overflows; and
+ * `.modal-close-button` is absolutely positioned, so the title and the × never
+ * align. Both are corrected here, for every modal the app opens.
+ */
+.ca-modal .modal-header {
+  align-items: center;
+  height: auto;
+  min-height: 56px;
+  flex: 0 0 auto;
+  gap: var(--UI-Spacing-spacing-ms);
+  padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-mxs)
+           var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-mxl);
+  border-bottom: 1px solid var(--Colors-Border-Subtle);
+}
+
+.ca-modal .modal-title {
+  font-size: var(--Fonts-Body-Default-xl);
+  letter-spacing: -0.1px;
+}
+
+.ca-modal .modal-close-button {
+  position: static;
+  width: var(--UI-Input-xs);
+  height: var(--UI-Input-xs);
+  padding: 0;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.ca-modal .modal-content {
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.ca-modal-holder {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+/* Help: a full-height two-column panel with a stable size. */
+.ca-modal-panel { height: min(86vh, 820px); }
+
+.ca-modal-panel .modal-content {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Credentials: a padded, top-aligned form. */
+.ca-modal-form .modal-content {
+  padding: var(--UI-Spacing-spacing-ml) var(--UI-Spacing-spacing-mxl) var(--UI-Spacing-spacing-mxl);
+  overflow-y: auto;
+}

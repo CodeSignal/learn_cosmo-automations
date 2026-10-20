@@ -1,0 +1,370 @@
+{
+  "version": 1,
+  "bespokeIdentifier": "cosmo-automations",
+  "title": "Escalate urgent helpdesk tickets",
+  "instructions": [
+    "Zendesk is not one of the built-in nodes \u2014 this task brings its own, defined in `scenario.json` under `nodes`. It behaves like any other integration.",
+    "Build a workflow that:",
+    "1. Lists the open tickets from Zendesk using the Helpdesk credential.",
+    "2. Keeps only the ones whose `priority` is `urgent`.",
+    "3. Adds the comment `Escalated to the on-call engineer.` to each of them.",
+    "4. Posts one summary to Slack on `#support-escalations` reading exactly `3 urgent tickets escalated`."
+  ],
+  "nodes": [
+    {
+      "type": "zendesk",
+      "label": "Zendesk",
+      "group": "integration",
+      "icon": "chat",
+      "description": "Lists helpdesk tickets, or adds a comment to one.",
+      "credential": true,
+      "credentialType": "zendeskApi",
+      "latency": {
+        "base": 260,
+        "perItem": 85
+      },
+      "operations": {
+        "listTickets": {
+          "mode": "runOnceForAllItems",
+          "request": {
+            "method": "GET",
+            "url": "https://zendesk.test/api/v2/tickets",
+            "query": {
+              "status": "{status}"
+            }
+          },
+          "itemsFrom": "tickets"
+        },
+        "addComment": {
+          "mode": "runOncePerItem",
+          "request": {
+            "method": "POST",
+            "url": "https://zendesk.test/api/v2/tickets/{ticketId}/comments",
+            "body": {
+              "body": "{comment}",
+              "public": false
+            }
+          },
+          "sink": true
+        }
+      },
+      "params": [
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "options",
+          "options": [
+            "open",
+            "pending",
+            "solved"
+          ],
+          "showFor": {
+            "operation": "listTickets"
+          }
+        },
+        {
+          "name": "ticketId",
+          "label": "Ticket ID",
+          "type": "string",
+          "placeholder": "={{ $json.id }}",
+          "showFor": {
+            "operation": "addComment"
+          },
+          "hint": "Which ticket to comment on. Usually an expression reading the incoming item."
+        },
+        {
+          "name": "comment",
+          "label": "Comment",
+          "type": "string",
+          "multiline": true,
+          "showFor": {
+            "operation": "addComment"
+          }
+        }
+      ],
+      "docs": {
+        "summary": "Lists tickets from the helpdesk, or adds a comment to one.",
+        "mode": "listTickets runs once and returns one item per ticket. addComment runs once per item \u2014 one item in means one comment out.",
+        "when": "Use it as the source when the work starts from a support queue, or as the destination when the workflow should leave a note behind.",
+        "params": [
+          {
+            "name": "status",
+            "text": "Which tickets to list. `open` is the usual starting point."
+          },
+          {
+            "name": "ticketId",
+            "text": "The ticket to comment on. An expression, so each item can target its own."
+          },
+          {
+            "name": "comment",
+            "text": "The comment text. Plain text or an expression."
+          }
+        ],
+        "examples": [
+          {
+            "label": "Comment on the incoming ticket",
+            "code": "ticketId: ={{ $json.id }}\ncomment:  Escalated to the on-call engineer."
+          }
+        ],
+        "gotchas": [
+          "listTickets already gives you one item per ticket \u2014 no Split Out needed afterwards.",
+          "addComment runs once per item, so three tickets means three comments."
+        ],
+        "seeAlso": [
+          "slack",
+          "filter"
+        ]
+      }
+    }
+  ],
+  "palette": {
+    "include": [
+      "manualTrigger",
+      "zendesk",
+      "filter",
+      "if",
+      "set",
+      "splitOut",
+      "aggregate",
+      "sort",
+      "limit",
+      "slack",
+      "noOp"
+    ],
+    "exclude": [],
+    "excludeNote": "Code is not offered: the assertions name the mechanism (a Filter on priority, one comment per ticket), so a Code node reaching the same rows would be rejected for the wrong reason."
+  },
+  "initialWorkflow": {
+    "nodes": [
+      {
+        "id": "n1",
+        "name": "When clicking Execute",
+        "type": "manualTrigger",
+        "position": [
+          -260,
+          0
+        ],
+        "parameters": {}
+      }
+    ],
+    "connections": []
+  },
+  "credentialTypes": [
+    {
+      "name": "zendeskApi",
+      "label": "Zendesk API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {token}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "token",
+          "label": "API Token",
+          "type": "password",
+          "placeholder": "zd_\u2026"
+        }
+      ],
+      "docs": "Zendesk \u2192 Admin Center \u2192 Apps and integrations \u2192 Zendesk API."
+    },
+    {
+      "name": "slackApi",
+      "label": "Slack API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {token}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "token",
+          "label": "Bot User OAuth Token",
+          "type": "password",
+          "placeholder": "xoxb-\u2026"
+        }
+      ],
+      "docs": "Slack \u2192 Your apps \u2192 OAuth & Permissions \u2192 Bot User OAuth Token."
+    }
+  ],
+  "mockApi": {
+    "defaultDeny": true,
+    "hosts": {
+      "zendesk.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer zd_FAKE_000000"
+        },
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/api/v2/tickets",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "couldn't authenticate you"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/tickets",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "count": 6,
+              "tickets": [
+                {
+                  "id": "ZD-501",
+                  "subject": "Checkout returns 500",
+                  "priority": "urgent",
+                  "requester": "ops@nordwind.test"
+                },
+                {
+                  "id": "ZD-502",
+                  "subject": "Invoice PDF is blank",
+                  "priority": "normal",
+                  "requester": "ap@redwood.test"
+                },
+                {
+                  "id": "ZD-503",
+                  "subject": "SSO login loop",
+                  "priority": "urgent",
+                  "requester": "it@kirin.test"
+                },
+                {
+                  "id": "ZD-504",
+                  "subject": "Feature request: dark mode",
+                  "priority": "low",
+                  "requester": "hi@alpina.test"
+                },
+                {
+                  "id": "ZD-505",
+                  "subject": "Export missing rows",
+                  "priority": "normal",
+                  "requester": "data@utrecht.test"
+                },
+                {
+                  "id": "ZD-506",
+                  "subject": "Webhook retries forever",
+                  "priority": "urgent",
+                  "requester": "dev@cork.test"
+                }
+              ]
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/tickets/:id/comments",
+            "when": "authenticated",
+            "status": 201,
+            "body": {
+              "ok": true
+            }
+          }
+        ]
+      },
+      "slack.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer xoxb-FAKE-000000-000000"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/api/chat.postMessage",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "triggerPayload": {
+    "manualTrigger": [
+      {}
+    ]
+  },
+  "vars": {},
+  "env": {},
+  "limits": {
+    "maxNodes": 40,
+    "maxItems": 5000,
+    "maxExecutionMs": 5000
+  },
+  "assertions": [
+    {
+      "id": "lists-tickets",
+      "type": "httpCalled",
+      "method": "GET",
+      "path": "/__mock/zendesk.test/api/v2/tickets",
+      "times": 1,
+      "message": "The ticket list should be fetched exactly once, not once per item."
+    },
+    {
+      "id": "six-tickets-in",
+      "type": "itemCount",
+      "nodeType": "filter",
+      "port": "in",
+      "comparison": "exactly",
+      "count": 6,
+      "message": "All six open tickets should reach the filter."
+    },
+    {
+      "id": "filters-on-priority",
+      "type": "expressionContains",
+      "nodeType": "filter|if",
+      "param": "conditions",
+      "substring": "$json.priority",
+      "message": "Filtering should read the priority field off each ticket."
+    },
+    {
+      "id": "three-urgent",
+      "type": "itemCount",
+      "nodeType": "filter",
+      "port": "out",
+      "comparison": "exactly",
+      "count": 3,
+      "message": "Exactly three of the six tickets are urgent."
+    },
+    {
+      "id": "comments-on-each",
+      "type": "httpCalled",
+      "method": "POST",
+      "path": "/__mock/zendesk.test/api/v2/tickets/ZD-503/comments",
+      "times": 1,
+      "message": "Each urgent ticket should get exactly one comment."
+    },
+    {
+      "id": "comment-text",
+      "type": "sinkPayloadMatches",
+      "nodeType": "zendesk",
+      "match": {
+        "body": "Escalated to the on-call engineer.",
+        "public": false
+      },
+      "message": "The comment text must match, and it should be an internal note."
+    },
+    {
+      "id": "one-summary",
+      "type": "sinkPayloadMatches",
+      "nodeType": "slack",
+      "match": {
+        "channel": "#support-escalations",
+        "text": "3 urgent tickets escalated"
+      },
+      "message": "One summary on #support-escalations with the count."
+    },
+    {
+      "id": "no-node-errors",
+      "type": "noNodeErrors",
+      "message": "Every node should complete without an error."
+    }
+  ]
+}

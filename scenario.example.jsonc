@@ -1,0 +1,459 @@
+// Cosmo Automations — scenario template.
+//
+// A task is data. Copy this file, fill it in, and attach it to the Engine task;
+// `setup.sh` drops it in beside the simulation at session start. You do not need
+// this repository to author a task.
+//
+//   1. cp scenario.example.jsonc my-task/scenario.json   (strip these comments —
+//                                                         real scenarios are JSON)
+//   2. author my-task/reference_solution.json            (your intended answer)
+//   3. npm run validate my-task/scenario.json            (never skip this)
+//
+// Step 2 is what makes step 3 worth doing: with a reference solution present, the
+// validator executes your intended answer and grades it, so the task is proved
+// solvable rather than merely well-formed.
+//
+// Every key below is optional unless marked REQUIRED.
+{
+  "version": 1,
+
+  // Shown in the simulation header. The task statement itself is delivered by
+  // Learn, outside the simulation — do not restate it here.
+  "title": "Route high-value EU orders to the ops channel",
+
+  // Author-facing only. Documents the task for whoever maintains these fixtures
+  // and assertions; the server strips it before the client ever sees it.
+  "instructions": [
+    "Fetch the orders, keep EU ones over $1000, total them, post to #ops-alerts."
+  ],
+
+  // ── Nodes this task brings with it ──────────────────────────────────────
+  //
+  // A service the palette does not have — Zendesk, HubSpot, an internal API — is
+  // declared here, with no code change. It becomes a first-class node: palette
+  // entry, parameter form, credential dropdown, expressions, wiki page, and the
+  // same treatment in the graded report as any built-in.
+  //
+  // THE LINE: json adds SERVICES, code adds SEMANTICS. Anything that calls
+  // something belongs here. Anything that branches, splits, joins, sorts or
+  // counts is the item model — it is what every task shares and what mechanism
+  // assertions name — so it stays in `engine/nodes/`.
+  //
+  // START FROM A REAL ONE. Every shipped integration is already JSON, in
+  // `engine/nodes/library/` — slack.json is the simplest, airtable.json shows a
+  // nested response being flattened, postgres.json shows required parameters.
+  // Copy the nearest and edit it, rather than writing from this comment.
+  //
+  // You may also REPLACE a library node: declare "slack" here and yours wins for
+  // this task. Coded flow/data nodes cannot be replaced — `filter` has to mean the
+  // same thing in every task.
+  //
+  // Delete this block entirely if the shipped palette is enough; most tasks do.
+  "nodes": [
+    {
+      "type": "zendesk",             // the id used in solution.json
+      "label": "Zendesk",            // shown in the palette and on the card
+      "group": "integration",        // trigger | flow | data | transport | integration
+      "icon": "chat",                // see shared/node-icons.mjs; unknown → a dot
+      "description": "Lists helpdesk tickets, or adds a comment to one.",
+      "credential": true,            // offer the credential dropdown (default: true)
+      "credentialType": "zendeskApi",// which type; only matching ones are offered
+      "latency": { "base": 260, "perItem": 85 },   // simulated, cosmetic only
+
+      // One entry per thing the node can do. The OPERATION PICKER IS GENERATED
+      // from these keys — do not declare a parameter called "operation".
+      "operations": {
+        "listTickets": {
+          // Reading is one call for the whole list; writing is one call per item.
+          // Getting this wrong means forty API calls where one was meant.
+          "mode": "runOnceForAllItems",
+          "request": {
+            "method": "GET",
+            "url": "https://zendesk.test/api/v2/tickets",
+            "query": { "status": "{status}" }
+          },
+          // Dotted path to an array in the response: one item per element. Omit
+          // and the whole body becomes one item.
+          "itemsFrom": "tickets",
+          // Optional: lift a nested object onto each item, so downstream
+          // expressions read `$json.subject` rather than `$json.fields.subject`.
+          "flatten": null
+        },
+        "addComment": {
+          "mode": "runOncePerItem",
+          "request": {
+            "method": "POST",
+            "url": "https://zendesk.test/api/v2/tickets/{ticketId}/comments",
+            "body": { "body": "{comment}", "public": false }
+          },
+          // Record what was SENT, so `sinkPayloadMatches` can assert on it.
+          "sink": true
+        }
+      },
+
+      // The fields the candidate fills in. Same descriptors the built-in nodes
+      // use: string | number | boolean | options | fields | fieldNames.
+      // `showFor` hides a field unless the operation matches.
+      "params": [
+        {
+          "name": "status", "label": "Status", "type": "options",
+          "options": ["open", "pending", "solved"],
+          "showFor": { "operation": "listTickets" }
+        },
+        {
+          "name": "ticketId", "label": "Ticket ID", "type": "string",
+          "placeholder": "={{ $json.id }}",
+          "hint": "Usually an expression reading the incoming item.",
+          "showFor": { "operation": "addComment" }
+        },
+        {
+          "name": "comment", "label": "Comment", "type": "string",
+          "multiline": true,
+          "showFor": { "operation": "addComment" }
+        }
+      ],
+
+      // Its wiki page. Same shape as shared/node-docs.mjs. Leaving it out is a
+      // warning, not an error — but the help panel is how a candidate learns a
+      // node they have never seen before, and they have never seen this one.
+      "docs": {
+        "summary": "Lists tickets from the helpdesk, or adds a comment to one.",
+        "mode": "listTickets runs once and returns one item per ticket. addComment runs once per item.",
+        "when": "Use it when the work starts from a support queue, or should leave a note behind.",
+        "gotchas": [
+          "listTickets already gives you one item per ticket — no Split Out needed.",
+          "addComment runs once per item, so three tickets means three comments."
+        ]
+      }
+    }
+  ],
+  //
+  // `{paramName}` is the whole template language: it substitutes that parameter's
+  // value into a URL, query, header or body. On its own it keeps the value's
+  // type; inside a longer string it interpolates. It is NOT the `{{ }}`
+  // expression language — expressions belong to the candidate, and the engine
+  // resolves theirs before your node runs.
+  //
+  // `npm run validate` refuses: a host not in `mockApi.hosts` (the transport is
+  // default-deny), a `{placeholder}` in the HOST part of a URL (a candidate must
+  // never choose which server is called), a placeholder naming no parameter, an
+  // invalid mode, and redefining a built-in.
+
+  // ── Which nodes the candidate gets ──────────────────────────────────────
+  //
+  // Narrowing the palette is a design tool, not a limitation. Omitting Aggregate
+  // from a task that needs one summary message tests whether they notice; leaving
+  // it in on a task solvable with a plain If tests whether they over-reach.
+  "palette": {
+    // REQUIRED in practice: omit and every node is offered. Must include at
+    // least one trigger, or a candidate cannot start a workflow.
+    // NOTE the deliberate absence of "code". This template's assertions name
+    // specific node types (mechanism assertions, below), and the Code node could
+    // satisfy the task without them — so a candidate using it would be right and
+    // get rejected. `npm run validate` refuses that combination. Add "code" only
+    // if you restate the assertions as outcomes.
+    "include": [
+      "manualTrigger", "webhook", "scheduleTrigger",
+      "filter", "if", "noOp", "stopAndError",
+      "set", "splitOut", "aggregate",
+      "httpRequest", "slack",
+      "zendesk"                      // the node defined above, offered like any other
+    ],
+
+    // Optional deny-list, applied after `include`.
+    "exclude": [],
+
+    // Pre-fill fields on every node of a type the candidate drags out. Node
+    // defaults ship EMPTY on purpose — a default URL or channel would hand over
+    // the answer — so this is the explicit way to give something away.
+    "defaults": {
+      "httpRequest": { "url": "https://api.acme-crm.test/v1/" }
+    }
+  },
+
+  // ── The starting canvas ─────────────────────────────────────────────────
+  //
+  // Omit for a blank canvas. Ship a wired-but-wrong workflow here for the
+  // higher-signal "fix this" task type. Node names must be unique — expressions
+  // address nodes by name.
+  "initialWorkflow": {
+    "nodes": [
+      {
+        "id": "n1",
+        "name": "When clicking Execute",
+        "type": "manualTrigger",
+        "position": [80, 240],
+        "parameters": {}
+      }
+    ],
+    "connections": []
+  },
+
+  // ── Credential types ────────────────────────────────────────────────────
+  //
+  // You declare the TYPES. The candidate creates the instances and types the
+  // secret in — that is the point: picking the only entry in a dropdown tests
+  // nothing, whereas creating a credential tests which type a node needs, that
+  // the secret goes in a named field, and what a 401 means when it is wrong.
+  //
+  // Put the actual value in the TASK STATEMENT (written in Learn, outside the
+  // simulation). The expected value lives in `mockApi.hosts[…].requireAuth`,
+  // server-side — the browser never sees it, so a wrong value is a real 401.
+  //
+  // `auth` says how the fields become a request header. Two rules cover almost
+  // everything: an API-key header, and a bearer token. Both are just templates.
+  "credentialTypes": [
+    {
+      "name": "acmeCrmApi",              // nodes reference a type by this name
+      "label": "Acme CRM API",           // shown in the picker
+      "auth": [
+        { "in": "header", "name": "X-Api-Key", "value": "{apiKey}" }
+      ],
+      "fields": [
+        { "name": "apiKey", "label": "API Key", "type": "password",
+          "placeholder": "sk_test_…" }
+      ],
+      // One sentence on where a real one would come from. Shown under the fields.
+      "docs": "Acme CRM → Settings → API keys."
+    },
+    {
+      "name": "slackApi",
+      "label": "Slack API",
+      "auth": [
+        { "in": "header", "name": "Authorization", "value": "Bearer {token}" }
+      ],
+      "fields": [
+        { "name": "token", "label": "Bot User OAuth Token", "type": "password",
+          "placeholder": "xoxb-…" }
+      ],
+      "docs": "Slack → Your apps → OAuth & Permissions → Bot User OAuth Token."
+    },
+    {
+      "name": "zendeskApi",
+      "label": "Zendesk API",
+      "auth": [
+        { "in": "header", "name": "Authorization", "value": "Bearer {token}" }
+      ],
+      "fields": [
+        { "name": "token", "label": "API Token", "type": "password", "placeholder": "zd_…" }
+      ]
+    }
+  ],
+
+  // ── Ready-made credentials (optional, and usually wrong) ────────────────
+  //
+  // A task that is NOT about credentials can hand them over rather than making
+  // every candidate retype a token to reach the part being taught. Everything
+  // else should leave this out and let them create their own.
+  //
+  // Delete this block unless you have that specific reason.
+  "credentials": [
+    {
+      "id": "cred_crm",
+      "name": "Acme CRM (staging)",
+      "type": "acmeCrmApi",
+      "fields": { "apiKey": "sk_test_FAKE_2f9a1c" }
+    }
+  ],
+
+  // ── The APIs the workflow can call ──────────────────────────────────────
+  //
+  // Hostnames MUST use a reserved TLD (.test / .invalid / .example / .localhost).
+  // Those never resolve, which is what makes the sandbox safe. Nothing else
+  // answers, and no request leaves the machine.
+  //
+  // Because these are your fixtures, you can author situations a live API cannot
+  // give you reliably: a 401 on a missing key, a malformed record at a known
+  // index, a boundary value that separates `gt` from `gte`.
+  "mockApi": {
+    "hosts": {
+      "api.acme-crm.test": {
+        // Omit for an open endpoint.
+        "requireAuth": { "header": "X-Api-Key", "equals": "sk_test_FAKE_2f9a1c" },
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/v1/orders",
+            // "unauthenticated" | "authenticated" — how you author a real 401.
+            // A route declaring its auth state wins over a generic one.
+            "when": "unauthenticated",
+            "status": 401,
+            "body": { "error": "missing or invalid api key" }
+          },
+          {
+            "method": "GET",
+            "path": "/v1/orders",
+            "when": "authenticated",
+            // `query` constrains the query string; "*" means "present, any value".
+            "query": { "since": "*" },
+            "status": 200,
+            "body": {
+              "orders": [
+                { "id": "AC-4801", "region": "EU", "total": 1420 },
+                { "id": "AC-4802", "region": "US", "total": 5300 },
+                // A boundary value: included by `gte 1000`, excluded by `gt 1000`.
+                { "id": "AC-4805", "region": "EU", "total": 1000 }
+              ]
+            }
+          },
+          {
+            // `:params` are supported.
+            "method": "POST",
+            "path": "/v1/orders/:id/flag",
+            "status": 202,
+            "body": { "ok": true }
+          }
+        ]
+      },
+      "slack.test": {
+        "routes": [
+          { "method": "POST", "path": "/api/chat.postMessage", "status": 200, "body": { "ok": true } }
+        ]
+      },
+
+      // The host the scenario-defined Zendesk node above calls. Every host a
+      // node touches has to be declared here — the transport is default-deny, and
+      // `npm run validate` refuses a node pointed at a host you forgot.
+      "zendesk.test": {
+        "requireAuth": { "header": "Authorization", "equals": "Bearer zd_FAKE_000000" },
+        "routes": [
+          { "method": "GET", "path": "/api/v2/tickets", "when": "unauthenticated",
+            "status": 401, "body": { "error": "couldn't authenticate you" } },
+          { "method": "GET", "path": "/api/v2/tickets", "when": "authenticated",
+            "status": 200,
+            "body": { "count": 1,
+                      "tickets": [ { "id": "ZD-501", "subject": "Checkout returns 500",
+                                     "priority": "urgent" } ] } },
+          { "method": "POST", "path": "/api/v2/tickets/:id/comments",
+            "when": "authenticated", "status": 201, "body": { "ok": true } }
+        ]
+      }
+    }
+  },
+
+  // ── What each trigger emits ─────────────────────────────────────────────
+  //
+  // Keyed by trigger node type. This is what makes a run reproducible.
+  // Note the webhook shape: the payload is under `body`, so an expression needs
+  // `{{ $json.body.region }}` — a productive trap.
+  "triggerPayload": {
+    "manualTrigger": {},
+    "webhook": {
+      "body": { "region": "EU", "total": 1420 },
+      "headers": { "content-type": "application/json" },
+      "query": {}
+    }
+  },
+
+  // Exposed to expressions as {{ $vars.x }} and {{ $env.Y }}.
+  "vars": {},
+  "env": {},
+
+  // AI Agent and AI Agent Tool (subagent) answers. The engine only replays: a
+  // fixture matches on the INPUT item (never the prompt), first match wins.
+  // See docs/agent-nodes.md, and scenarios/ticket-triage-ai and
+  // scenarios/refund-desk-agents for complete examples.
+  //
+  // "ai": {
+  //   "mode": "replay",
+  //   "models": ["gpt-5", "gpt-5-mini"],         // the Model dropdown
+  //   // Optional, Learn only: real answers through the LLM Proxy while the learner
+  //   // builds. Grading still replays the fixtures. See docs/agent-nodes.md.
+  //   "live": { "enabled": true, "provider": "openai",
+  //             "models": { "gpt-5": "gpt-5", "gpt-5-mini": "gpt-5-mini" } },
+  //   "fixtures": [
+  //     // A top-level agent. `calls` replays the tool calls the model made
+  //     // before answering; each subagent then answers from its own fixture.
+  //     { "id": "decide-R-01", "when": { "input": { "request": "R-01" } },
+  //       "calls": [{ "tool": "lookup_order", "input": { "orderId": "O-1001" } }],
+  //       "respond": { "decision": "refund" } },
+  //     { "id": "decide-catch-all", "when": {}, "respond": { "decision": "deny" } },
+  //
+  //     // A subagent, by its Tool Name. Without `when.tool` a fixture answers
+  //     // top-level agents only, so each tool needs its own catch-all.
+  //     { "id": "lookup-O-1001", "when": { "tool": "lookup_order", "input": { "orderId": "O-1001" } },
+  //       "respond": { "status": "delivered", "daysSinceDelivery": 3 } },
+  //     { "id": "lookup-catch-all", "when": { "tool": "lookup_order" },
+  //       "respond": { "status": "unknown" } }
+  //   ]
+  // },
+
+  // ── Limits ──────────────────────────────────────────────────────────────
+  // All optional; these are the defaults.
+  "limits": {
+    "maxNodes": 40,
+    "maxItems": 5000,
+    "maxExecutionMs": 5000,   // real compute; excludes simulated latency
+    "maxSimulatedMs": 4000,   // ceiling on the deliberate per-node slowness
+    "maxExpressionMs": 100,   // one {{ }} span, enforced by the isolate
+    "maxCodeMs": 1000         // one Code node run
+  },
+
+  // ── What counts as correct ──────────────────────────────────────────────
+  //
+  // REQUIRED — without assertions every solution grades as FAIL.
+  //
+  // Target nodes with `nodeType` (a type, `"filter|if"` for alternatives) rather
+  // than `node` (an exact name): candidates rename nodes freely, and a name-based
+  // assertion then fails for the wrong reason.
+  //
+  // DECIDE DELIBERATELY: mechanism assertions (nodeExists / connected /
+  // expressionContains / itemCount on an intermediate node) constrain HOW the
+  // workflow is built. Outcome assertions (sinkPayloadMatches / httpCalled)
+  // constrain WHAT it achieves. If you use mechanism assertions, narrow the
+  // palette — otherwise a candidate can solve it another way and be marked wrong.
+  // The validator rejects mechanism assertions combined with the Code node.
+  //
+  // HIRE: move this array out of the task's visible config.json into the hidden
+  // project file `hidden_cosmo-automations/assertions.json`. It exists only at
+  // Submit, when grading runs, and is read in preference to this key. And set
+  // "grading": { "private": true } so a FAIL line says what was required — each
+  // assertion's `message` — without printing the expected value. One assertion
+  // can override that with its own "private": false (or true).
+  "assertions": [
+    {
+      "id": "fetches-orders",
+      "type": "httpCalled",
+      "method": "GET",
+      "path": "/__mock/api.acme-crm.test/v1/orders",
+      "times": 1,
+      "comparison": "exactly",       // exactly | atLeast | atMost
+      "message": "Call the orders endpoint exactly once."
+    },
+    { "id": "splits-the-array", "type": "nodeExists", "nodeType": "splitOut",
+      "message": "The response is one item holding a list; it needs splitting." },
+
+    // How many model calls, on which model. The assertion that makes an AI Agent
+    // worth grading: classifying forty items with forty calls and aggregating
+    // first to make one are both "working", and differ by a factor of forty on
+    // the bill. `model` and `node` are both optional filters.
+    { "id": "one-cheap-call-each", "type": "aiCalled", "model": "gpt-5-mini",
+      "times": 12, "comparison": "exactly",
+      "message": "One call per order, on the cheap model — triage does not need the big one." },
+
+    { "id": "connected-up", "type": "connected", "fromType": "splitOut", "toType": "filter|if",
+      "message": "Filtering should happen after the list is split." },
+
+    { "id": "reads-region", "type": "expressionContains",
+      "nodeType": "filter|if", "param": "conditions", "substring": "$json.region",
+      "message": "Filtering should read each order's region." },
+
+    { "id": "channel-set", "type": "paramEquals",
+      "nodeType": "slack", "param": "channel", "value": "#ops-alerts",
+      "message": "Post to the ops channel." },
+
+    { "id": "keeps-three", "type": "itemCount",
+      "nodeType": "aggregate", "port": "in",   // in | out
+      "comparison": "exactly", "count": 3,
+      "message": "Exactly 3 orders qualify." },
+
+    { "id": "posts-the-summary", "type": "sinkPayloadMatches",
+      "nodeType": "slack",
+      // Partial deep match: only the keys you list are checked.
+      "match": { "channel": "#ops-alerts", "text": "3 EU orders — total $4700" },
+      "message": "Slack should receive the summary." },
+
+    { "id": "no-errors", "type": "noNodeErrors",
+      "message": "Every node should complete without an error." }
+  ]
+}

@@ -1,0 +1,619 @@
+/*
+ * The node detail view and everything in it: the item panels, the parameter
+ * form, expression fields — plus the credentials form, which shares the form
+ * language.
+ */
+
+/* ── overlay ─────────────────────────────────────────────────────────── */
+
+.ca-ndv-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  padding: var(--UI-Spacing-spacing-ms) var(--UI-Spacing-spacing-ml) var(--UI-Spacing-spacing-ml);
+  background: var(--Colors-Surface-Scrim);
+}
+
+.ca-ndv {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--Colors-Border-Soft);
+  border-radius: var(--UI-Radius-radius-m);
+  background: var(--Colors-Surface-App-Base);
+  box-shadow: 0 12px 40px var(--Colors-Emphasis-Shadow-Strong);
+  overflow: hidden;
+}
+
+.ca-ndv-top {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 40px;
+  padding: 0 var(--UI-Spacing-spacing-s);
+  border-bottom: 1px solid var(--Colors-Border-Subtle);
+  background: var(--Colors-Surface-Container-Base);
+}
+
+.ca-ndv .ca-ndv-back {
+  height: var(--UI-Input-min);
+  padding: 0 var(--UI-Spacing-spacing-s);
+  align-items: center;
+  border-radius: var(--UI-Radius-radius-xs);
+  border-bottom: none;
+  color: var(--Colors-Text-Body-Medium);
+}
+
+.ca-ndv .ca-ndv-back:hover,
+.ca-ndv .ca-ndv-back:focus-visible {
+  background: var(--Colors-Control-Neutral-Soft);
+  color: var(--Colors-Text-Body-Strong);
+  border-bottom: none;
+}
+
+.ca-ndv-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ca-detail-outer,
+.ca-detail-inner {
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── panes ───────────────────────────────────────────────────────────── */
+
+.ca-pane {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--Colors-Surface-Container-Base);
+}
+
+/* Input is read from, so it recedes; parameters are worked in, so they lead. */
+.ca-pane-input { background: var(--Colors-Surface-App-Subtle); }
+.ca-pane-output { background: var(--Colors-Surface-Container-Base); }
+.ca-pane-center { background: var(--Colors-Surface-Container-Highest); }
+
+.ca-pane-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+  min-height: 48px;
+  padding: var(--UI-Spacing-spacing-xxs) var(--UI-Spacing-spacing-ms);
+  border-bottom: 1px solid var(--Colors-Border-Subtle);
+}
+
+.ca-pane-title { color: var(--Colors-Text-Body-Strong); font-weight: 600; }
+
+.ca-pane-count {
+  color: var(--Colors-Text-Body-Lighter);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* One right-hand slot, whatever the pane puts in it. */
+.ca-pane-head-end { margin-left: auto; }
+
+.ca-pane-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--UI-Spacing-spacing-mxs) var(--UI-Spacing-spacing-ms) var(--UI-Spacing-spacing-ml);
+}
+
+.ca-pane-scroll > .ca-alert { margin: 0 0 var(--UI-Spacing-spacing-mxs); }
+
+.ca-pane-empty { color: var(--Colors-Text-Body-Lighter); padding: var(--UI-Spacing-spacing-xs) 0; }
+
+/* A standing caveat about what the pane is showing — the other Switch ports. */
+.ca-pane-note {
+  flex: 0 0 auto;
+  padding: var(--UI-Spacing-spacing-xs) var(--UI-Spacing-spacing-ms);
+  color: var(--Colors-Text-Body-Medium);
+  background: var(--Colors-Emphasis-Primary-Subtle);
+  border-bottom: 1px solid var(--Colors-Border-Subtle);
+}
+
+.ca-pane-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-xs);
+  max-width: 280px;
+  margin: var(--UI-Spacing-spacing-xxxl) auto 0;
+  text-align: center;
+}
+
+.ca-pane-empty-title { color: var(--Colors-Text-Body-Strong); font-weight: 600; }
+.ca-pane-empty-text { color: var(--Colors-Text-Body-Light); }
+.ca-pane-empty-state .button { margin-top: var(--UI-Spacing-spacing-xs); }
+
+/* ── center pane: node header ────────────────────────────────────────── */
+
+.ca-detail-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+  padding: var(--UI-Spacing-spacing-mxs) var(--UI-Spacing-spacing-ms) var(--UI-Spacing-spacing-xs);
+}
+
+.ca-detail-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The name is the heading of this view, so it reads as text until you edit it. */
+.ca-detail-name {
+  width: 100%;
+  margin-left: calc(-1 * var(--UI-Spacing-spacing-xxs));
+  padding: 0 var(--UI-Spacing-spacing-xxs);
+  border: 1px solid transparent;
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: transparent;
+  color: var(--Colors-Text-Body-Strong);
+  font-family: var(--heading-family, 'Founders Grotesk'), var(--body-family), sans-serif;
+  font-size: var(--Fonts-Headlines-xxxsm);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.ca-detail-name:hover { border-color: var(--Colors-Border-Soft); }
+
+.ca-detail-name:focus {
+  outline: none;
+  border-color: var(--Colors-Border-Highlight);
+  background: var(--Colors-Surface-Container-Base);
+}
+
+/* The node type is context, not a status — plain text rather than a loud tag. */
+.ca-detail-type {
+  color: var(--Colors-Text-Body-Lighter);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ca-detail-execute { flex: 0 0 auto; }
+
+/* ── parameter form ──────────────────────────────────────────────────── */
+
+/*
+ * Form controls inside the detail view use the design system's 40px input
+ * height — the same as its dropdown — rather than the 48px default, which is
+ * sized for a standalone form, not a dense tool.
+ */
+.ca-params .input,
+.ca-credentials .input {
+  height: var(--UI-Input-sm);
+  font-size: var(--Fonts-Body-Default-xs);
+  padding: 0 var(--UI-Spacing-spacing-mxs);
+}
+
+.ca-params-intro {
+  margin-bottom: var(--UI-Spacing-spacing-ml);
+  color: var(--Colors-Text-Body-Light);
+}
+
+.ca-field { margin: 0 0 var(--UI-Spacing-spacing-ml); }
+
+.ca-fieldset {
+  min-width: 0;
+  padding: 0;
+  border: none;
+}
+
+.ca-field-label {
+  display: block;
+  margin-bottom: var(--UI-Spacing-spacing-xs);
+  padding: 0;
+  color: var(--Colors-Text-Body-Strong);
+  font-weight: 500;
+}
+
+.ca-field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--UI-Spacing-spacing-s);
+}
+
+.ca-field-label-row .ca-field-label { margin-bottom: var(--UI-Spacing-spacing-xs); }
+
+.ca-field .ca-field-action { border-bottom: none; }
+
+.ca-field-hint {
+  margin-top: var(--UI-Spacing-spacing-xs);
+  color: var(--Colors-Text-Body-Lighter);
+}
+
+.ca-field-hint-error { color: var(--Colors-Alert-Error-Default); }
+
+/* Rows: an input that grows, fixed-width companions, an icon button. */
+.ca-row {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+}
+
+.ca-row + .ca-row { margin-top: var(--UI-Spacing-spacing-s); }
+.ca-row > * { min-width: 0; }
+.ca-row-grow { flex: 1 1 auto; }
+.ca-row-fixed { flex: 0 0 136px; }
+
+/* Repeating groups (conditions, rules, fields): a quiet card per entry. */
+.ca-row-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-s);
+  margin-bottom: var(--UI-Spacing-spacing-s);
+  padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-mxs);
+  border: 1px solid var(--Colors-Border-Subtle);
+  border-radius: var(--UI-Radius-radius-s);
+  background: var(--Colors-Surface-App-Subtle);
+}
+
+.ca-row-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--UI-Spacing-spacing-s);
+  margin-bottom: calc(-1 * var(--UI-Spacing-spacing-xxs));
+}
+
+.ca-row-card-title { color: var(--Colors-Text-Body-Light); font-weight: 500; }
+
+/* Operator and compare-to share a row: `[ is greater than ▾ ][ 4 ]`. */
+.ca-row-split {
+  display: grid;
+  grid-template-columns: minmax(120px, 2fr) minmax(0, 3fr);
+  gap: var(--UI-Spacing-spacing-s);
+  align-items: start;
+}
+
+.ca-row-split-op { min-width: 0; }
+.ca-row-split-value { min-width: 0; }
+.ca-row-split-op:only-child { grid-column: 1 / -1; }
+
+.ca-row-inline {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+}
+
+.ca-row-inline-label { color: var(--Colors-Text-Body-Light); }
+
+.ca-row-remove { flex: 0 0 auto; }
+.ca-row-card-head .ca-row-remove { margin-right: calc(-1 * var(--UI-Spacing-spacing-xxs)); }
+
+.ca-add-row.button { width: 100%; border-style: dashed; }
+
+/* ── expression field ────────────────────────────────────────────────── */
+
+.ca-expression {
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-xxs);
+  min-width: 0;
+}
+
+.ca-expression-field { position: relative; }
+
+.ca-expression .ca-expression-input {
+  width: 100%;
+  min-height: var(--UI-Input-sm);
+  height: auto;
+  padding-right: var(--UI-Spacing-spacing-xxxl);
+  resize: vertical;
+}
+
+input.ca-expression-input { height: var(--UI-Input-sm); }
+
+textarea.ca-expression-input {
+  padding-top: var(--UI-Spacing-spacing-s);
+  padding-bottom: var(--UI-Spacing-spacing-s);
+  line-height: 1.5;
+}
+
+/* An expression is code: code font, tinted, so the two modes never look alike. */
+.ca-expression.is-expression .ca-expression-input {
+  background: var(--Colors-Surface-Container-Tinted-Subtle);
+  font-size: var(--Fonts-Special-sm);
+  color: var(--Colors-Text-Body-Strong);
+}
+
+.ca-expression.is-dropping .ca-expression-input {
+  border-color: var(--Colors-Primary-Default);
+  border-style: dashed;
+}
+
+.ca-expression-mode {
+  position: absolute;
+  top: var(--UI-Spacing-spacing-xs);
+  right: var(--UI-Spacing-spacing-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: none;
+  color: var(--Colors-Icon-Light);
+  cursor: pointer;
+}
+
+.ca-expression-mode:hover {
+  background: var(--Colors-Control-Neutral-Soft);
+  color: var(--Colors-Icon-Strong);
+}
+
+.ca-expression.is-expression .ca-expression-mode {
+  background: var(--Colors-Emphasis-Primary-Subtle);
+  color: var(--Colors-Icon-Primary);
+}
+
+/* The resolved-value preview: the teaching surface. */
+/*
+ * A neutral strip with a coloured label. The design system's dark-mode alert
+ * tints are bright, so body text never sits on the success tint — only the
+ * error and undefined states take a tinted background, with their -Dark text.
+ */
+.ca-resolved {
+  display: flex;
+  align-items: baseline;
+  gap: var(--UI-Spacing-spacing-s);
+  padding: var(--UI-Spacing-spacing-xxs) var(--UI-Spacing-spacing-s);
+  border-radius: var(--UI-Radius-radius-xs);
+  border-left: 2px solid var(--Colors-Alert-Success-Default);
+  background: var(--Colors-Surface-App-Subtle);
+  overflow-wrap: anywhere;
+}
+
+.ca-resolved-label {
+  flex: 0 0 auto;
+  color: var(--Colors-Alert-Success-Default);
+  font-weight: 600;
+}
+
+.ca-resolved-value { color: var(--Colors-Text-Body-Strong); min-width: 0; }
+
+.ca-resolved-error { background: var(--Colors-Alert-Error-Lighter); border-left-color: var(--Colors-Alert-Error-Default); }
+.ca-resolved-error .ca-resolved-label,
+.ca-resolved-error .ca-resolved-value { color: var(--Colors-Alert-Error-Dark); }
+
+.ca-resolved-undefined { background: var(--Colors-Alert-Warning-Lighter); border-left-color: var(--Colors-Alert-Warning-Default); }
+.ca-resolved-undefined .ca-resolved-label,
+.ca-resolved-undefined .ca-resolved-value { color: var(--Colors-Alert-Warning-Dark); }
+
+.ca-resolved-pending { border-left-color: var(--Colors-Border-Strong); }
+.ca-resolved-pending .ca-resolved-label,
+.ca-resolved-pending .ca-resolved-value { color: var(--Colors-Text-Body-Lighter); }
+
+/* ── settings tab ────────────────────────────────────────────────────── */
+
+.ca-settings-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--UI-Spacing-spacing-ms);
+  margin: 0 0 var(--UI-Spacing-spacing-ml);
+  padding: var(--UI-Spacing-spacing-mxs) var(--UI-Spacing-spacing-ms);
+  border: 1px solid var(--Colors-Border-Subtle);
+  border-radius: var(--UI-Radius-radius-s);
+}
+
+.ca-settings-facts dt { color: var(--Colors-Text-Body-Lighter); }
+.ca-settings-facts dd { margin: var(--UI-Spacing-spacing-min) 0 0; color: var(--Colors-Text-Body-Strong); }
+
+/* ── item views ──────────────────────────────────────────────────────── */
+
+.ca-schema { display: flex; flex-direction: column; gap: var(--UI-Spacing-spacing-min); }
+
+.ca-schema-caption {
+  margin-bottom: var(--UI-Spacing-spacing-xs);
+  color: var(--Colors-Text-Body-Lighter);
+}
+
+.ca-schema-row {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+  width: 100%;
+  min-height: 30px;
+  padding: var(--UI-Spacing-spacing-xxs) var(--UI-Spacing-spacing-s);
+  border: 1px solid transparent;
+  border-radius: var(--UI-Radius-radius-xs);
+  background: none;
+  text-align: left;
+}
+
+.ca-schema-row.is-interactive { cursor: grab; }
+
+.ca-schema-row.is-interactive:hover {
+  background: var(--Colors-Surface-Container-Base);
+  border-color: var(--Colors-Border-Soft);
+}
+
+.ca-pane-output .ca-schema-row.is-interactive:hover,
+.ca-pane-output .ca-schema-row:hover { background: var(--Colors-Surface-App-Subtle); }
+
+/* A small typed chip, so the type reads at a glance: T text, # number. */
+.ca-schema-type {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 var(--UI-Spacing-spacing-xxs);
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: var(--Colors-Control-Neutral-Soft);
+  color: var(--Colors-Text-Body-Light);
+  font-size: var(--Fonts-Special-xxs);
+}
+
+.ca-schema-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--Colors-Text-Body-Strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-schema-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  color: var(--Colors-Text-Body-Light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* The design system table, compact for data rather than prose. */
+.ca-table.table-scroll { background: var(--Colors-Surface-Container-Base); }
+
+.ca-table .table th,
+.ca-table .table td {
+  padding: var(--UI-Spacing-spacing-xs) var(--UI-Spacing-spacing-s);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--Fonts-Special-sm);
+}
+
+/*
+ * Column headers are field names, and field names are case-sensitive in an
+ * expression: `ticket` must never be displayed as "Ticket".
+ */
+.ca-table .table th { text-transform: none; letter-spacing: normal; }
+
+.ca-table .ca-table-index {
+  width: 1%;
+  color: var(--Colors-Text-Body-Lighter);
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-item {
+  margin-bottom: var(--UI-Spacing-spacing-s);
+  border: 1px solid var(--Colors-Border-Subtle);
+  border-radius: var(--UI-Radius-radius-s);
+  overflow: hidden;
+  background: var(--Colors-Surface-Container-Base);
+}
+
+.ca-item-head {
+  padding: var(--UI-Spacing-spacing-xxs) var(--UI-Spacing-spacing-s);
+  border-bottom: 1px solid var(--Colors-Border-Subtle);
+  background: var(--Colors-Surface-App-Subtle);
+  color: var(--Colors-Text-Body-Light);
+  font-weight: 500;
+}
+
+.ca-json {
+  margin: 0;
+  padding: var(--UI-Spacing-spacing-s);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--Colors-Text-Body-Default);
+}
+
+/* ── credentials ─────────────────────────────────────────────────────── */
+
+.ca-credentials {
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-ml);
+  width: 100%;
+}
+
+.ca-credentials-intro { color: var(--Colors-Text-Body-Light); }
+
+.ca-credentials-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+  padding: var(--UI-Spacing-spacing-ms);
+  border: 1px dashed var(--Colors-Border-Medium);
+  border-radius: var(--UI-Radius-radius-s);
+  color: var(--Colors-Text-Body-Light);
+}
+
+.ca-credentials-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-s);
+}
+
+.ca-credential {
+  border: 1px solid var(--Colors-Border-Soft);
+  border-radius: var(--UI-Radius-radius-s);
+  background: var(--Colors-Surface-Container-Base);
+}
+
+.ca-credential.is-open { border-color: var(--Colors-Border-Highlight-Subtle); }
+
+.ca-credential-row {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-mxs);
+  padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-mxs);
+}
+
+.ca-credential-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--UI-Radius-radius-s);
+  background: var(--Colors-Alert-Warning-Lighter);
+  color: var(--Colors-Alert-Warning-Medium-Dark);
+}
+
+.ca-credential-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ca-credential-name {
+  color: var(--Colors-Text-Body-Strong);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-credential-type { color: var(--Colors-Text-Body-Lighter); }
+
+.ca-credential-form {
+  padding: var(--UI-Spacing-spacing-mxs) var(--UI-Spacing-spacing-ms) var(--UI-Spacing-spacing-xxs);
+  border-top: 1px solid var(--Colors-Border-Subtle);
+}
+
+.ca-credential-form .ca-field { margin-bottom: var(--UI-Spacing-spacing-ms); }
+
+.ca-credentials-create {
+  padding-top: var(--UI-Spacing-spacing-ml);
+  border-top: 1px solid var(--Colors-Border-Subtle);
+}

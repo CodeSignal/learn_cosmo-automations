@@ -1,0 +1,109 @@
+name: Build and Release
+
+# Inherited from learn_bespoke-template and adapted. Two changes matter:
+#
+#   1. The tarball contents. The template ships `dist/ package.json server.js
+#      node_modules/`, which is everything a vanilla-JS sim needs. Ours would be
+#      DEAD ON ARRIVAL with that list: server.js requires engine/ and shared/,
+#      the parse script requires grading/, and the server falls back to a bundled
+#      scenario. There is a test asserting the list stays complete.
+#   2. Tests and the grading experiment gate the release. The whole point of this
+#      simulation is that grading is trustworthy, so shipping a build whose
+#      experiment fails would be worse than not shipping.
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Populate design system submodule
+        run: git submodule update --init
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.1'
+          cache: 'npm'
+
+      - name: Install all dependencies
+        run: npm ci
+
+      # Built first: production-mode tests boot the server, which serves dist/.
+      - name: Build project
+        run: npm run build
+
+      # A release that grades wrongly is worse than no release.
+      - name: Run tests
+        run: npm test
+
+      - name: Run the grading experiment
+        run: npm run experiment
+
+      - name: Validate every bundled scenario
+        run: npm run validate
+      - name: Walk the eu-orders demo workflow
+        run: npm run rehearse
+      - name: Walk the payment-recovery showcase workflow
+        run: npm run rehearse:showcase
+
+
+      - name: Install production dependencies only
+        run: npm ci --production
+
+      # The last three are for the task generator, not the candidate: it runs in
+      # the session and proves the task it wrote is solvable with `npm run
+      # validate`, reading the README and the annotated example to write it.
+      #
+      # Every path here is required at runtime in a session. `npm run
+      # verify:release` checks this list against the server's actual dependency
+      # closure, so adding an engine directory cannot silently break a release.
+      - name: Create release tarball
+        run: |
+          tar -czf release.tar.gz \
+            dist/ \
+            node_modules/ \
+            package.json \
+            server.js \
+            parse_automation_solution.js \
+            run.js \
+            engine/ \
+            live/ \
+            grading/ \
+            shared/ \
+            scenarios/ \
+            scripts/validate-scenario.js \
+            scenario.example.jsonc \
+            README.md
+
+      - name: Verify the tarball can actually run a session
+        run: node scripts/verify-release.js release.tar.gz
+
+      - name: Upload build artifact (for workflow logs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Create GitHub Release and upload asset
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: v${{ github.run_number }}
+          name: Release ${{ github.run_number }}
+          body: |
+            Latest build from main branch.
+          artifacts: release.tar.gz
+          allowUpdates: false
+          draft: false
+          prerelease: false
+          makeLatest: true

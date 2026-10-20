@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "When clicking Execute",
+      "type": "manualTrigger",
+      "position": [
+        -280,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n2",
+      "name": "Fetch Open Tickets",
+      "type": "httpRequest",
+      "position": [
+        -60,
+        0
+      ],
+      "credentialId": "cred_hd",
+      "parameters": {
+        "method": "GET",
+        "url": "https://helpdesk.acme.test/v1/tickets",
+        "sendQuery": false,
+        "query": [],
+        "sendBody": false,
+        "body": [],
+        "neverError": false
+      }
+    },
+    {
+      "id": "n3",
+      "name": "One Item Per Ticket",
+      "type": "splitOut",
+      "position": [
+        160,
+        0
+      ],
+      "parameters": {
+        "field": "tickets",
+        "include": "noOtherFields"
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Classify Ticket",
+      "type": "agent",
+      "position": [
+        380,
+        0
+      ],
+      "parameters": {
+        "mode": "runOncePerItem",
+        "model": "gpt-5-mini",
+        "systemPrompt": "You are a support triage assistant. Answer literally and choose the single best category.",
+        "userPrompt": "=Classify this support ticket.\nSubject: {{ $json.subject }}\nCustomer: {{ $json.customer }}\n\nReturn a category (billing, technical, question or feature) and a severity from 1 (trivial) to 5 (outage).",
+        "outputFields": [
+          "category",
+          "severity"
+        ]
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Needs A Human",
+      "type": "filter",
+      "position": [
+        620,
+        0
+      ],
+      "parameters": {
+        "combinator": "and",
+        "conditions": [
+          {
+            "left": "={{ $json.severity }}",
+            "op": "gte",
+            "right": 4
+          }
+        ]
+      }
+    },
+    {
+      "id": "n8",
+      "name": "Confirm Escalation",
+      "type": "approval",
+      "position": [
+        840,
+        0
+      ],
+      "parameters": {
+        "prompt": "Escalate these tickets to the on-call engineer?"
+      }
+    },
+    {
+      "id": "n9",
+      "name": "Hold For Review",
+      "type": "noOp",
+      "position": [
+        1060,
+        140
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n6",
+      "name": "Count Escalations",
+      "type": "aggregate",
+      "position": [
+        1060,
+        0
+      ],
+      "parameters": {
+        "mode": "summarize",
+        "outputs": [
+          {
+            "as": "count",
+            "op": "count"
+          }
+        ],
+        "field": "data"
+      }
+    },
+    {
+      "id": "n7",
+      "name": "Tell Support",
+      "type": "slack",
+      "position": [
+        1280,
+        0
+      ],
+      "credentialId": "cred_slack",
+      "parameters": {
+        "channel": "#support",
+        "text": "={{ $json.count }} tickets need a human today"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "n1",
+      "fromOutput": 0,
+      "to": "n2",
+      "toInput": 0
+    },
+    {
+      "from": "n2",
+      "fromOutput": 0,
+      "to": "n3",
+      "toInput": 0
+    },
+    {
+      "from": "n3",
+      "fromOutput": 0,
+      "to": "n4",
+      "toInput": 0
+    },
+    {
+      "from": "n4",
+      "fromOutput": 0,
+      "to": "n5",
+      "toInput": 0
+    },
+    {
+      "from": "n6",
+      "fromOutput": 0,
+      "to": "n7",
+      "toInput": 0
+    },
+    {
+      "from": "n5",
+      "fromOutput": 0,
+      "to": "n8",
+      "toInput": 0
+    },
+    {
+      "from": "n8",
+      "fromOutput": 0,
+      "to": "n6",
+      "toInput": 0
+    },
+    {
+      "from": "n8",
+      "fromOutput": 1,
+      "to": "n9",
+      "toInput": 0
+    }
+  ],
+  "credentials": [
+    {
+      "id": "cred_hd",
+      "name": "Helpdesk",
+      "type": "helpdeskApi",
+      "fields": {
+        "apiKey": "hd_test_FAKE_71c0"
+      }
+    },
+    {
+      "id": "cred_slack",
+      "name": "Support Slack",
+      "type": "slackApi",
+      "fields": {
+        "token": "xoxb-FAKE-000000-000000"
+      }
+    }
+  ]
+}

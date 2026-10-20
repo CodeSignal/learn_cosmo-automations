@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "When clicking Execute",
+      "type": "manualTrigger",
+      "position": [
+        80,
+        240
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n2",
+      "name": "Fetch Orders",
+      "type": "httpRequest",
+      "position": [
+        300,
+        240
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.acme-crm.test/v1/orders",
+        "sendQuery": true,
+        "query": [
+          {
+            "name": "since",
+            "value": "2026-07-30"
+          }
+        ],
+        "sendBody": false,
+        "body": [],
+        "neverError": false
+      },
+      "credentialId": "cred_crm"
+    },
+    {
+      "id": "n3",
+      "name": "Split Out Orders",
+      "type": "splitOut",
+      "position": [
+        520,
+        240
+      ],
+      "parameters": {
+        "field": "orders",
+        "include": "noOtherFields"
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Filter High Value EU",
+      "type": "filter",
+      "position": [
+        740,
+        240
+      ],
+      "parameters": {
+        "combinator": "and",
+        "conditions": [
+          {
+            "left": "={{ $json.region }}",
+            "op": "equals",
+            "right": "EU"
+          },
+          {
+            "left": "={{ $json.total }}",
+            "op": "gt",
+            "right": 1000
+          }
+        ]
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Notify Ops",
+      "type": "slack",
+      "position": [
+        1180,
+        240
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#ops-alerts",
+        "text": "={{ $json.id }} EU order over $1000 \u2014 total ${{ $json.total }}"
+      },
+      "credentialId": "cred_slack"
+    }
+  ],
+  "connections": [
+    {
+      "from": "n1",
+      "fromOutput": 0,
+      "to": "n2",
+      "toInput": 0
+    },
+    {
+      "from": "n2",
+      "fromOutput": 0,
+      "to": "n3",
+      "toInput": 0
+    },
+    {
+      "from": "n3",
+      "fromOutput": 0,
+      "to": "n4",
+      "toInput": 0
+    },
+    {
+      "from": "n4",
+      "fromOutput": 0,
+      "to": "n6",
+      "toInput": 0
+    }
+  ],
+  "credentials": [
+    {
+      "id": "cred_crm",
+      "name": "Acme CRM (staging)",
+      "type": "acmeCrmApi",
+      "fields": {
+        "apiKey": "sk_test_FAKE_2f9a1c"
+      }
+    },
+    {
+      "id": "cred_slack",
+      "name": "Ops Slack",
+      "type": "slackApi",
+      "fields": {
+        "token": "xoxb-FAKE-000000-000000"
+      }
+    }
+  ]
+}

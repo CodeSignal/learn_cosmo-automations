@@ -1,0 +1,730 @@
+{
+  "version": 1,
+  "bespokeIdentifier": "cosmo-automations",
+  "title": "Recover failed payments overnight",
+  "instructions": [
+    "Every night, billing needs the failed payments from the last 24 hours dealt with \u2014 and how they are dealt with depends on who the customer is.",
+    "Build a workflow that:",
+    "1. Runs on a schedule, and reads the failed payments with the query `SELECT invoice, accountId, amount, reason, attempts FROM payments WHERE status = 'failed'` using the Billing DB credential.",
+    "2. The query joins two tables, so some invoices come back twice. Each invoice must appear once.",
+    "3. Loads the `Accounts` table from Airtable base `appBilling`. Each record has an `accountId`, a `company`, a `tier` and a `manager` email.",
+    "4. Attaches each payment's account to it, matching on `accountId`.",
+    "5. Routes payments by `tier`: `enterprise`, `mid_market` and `self_serve` each go their own way, and any other tier must be flagged rather than dropped.",
+    "6. enterprise: the three largest by `amount` get a personal email to the account manager, and a row appended to the `Outreach` sheet in document `sheetRecovery2026`.",
+    "7. mid_market: retry the charge two invoices at a time by POSTing to `https://billing.acme.test/v1/invoices/{invoice}/retry`, then tag the payments as retried.",
+    "8. self_serve: tag the payments for dunning and create a record in the `DunningQueue` Airtable table.",
+    "9. Any other tier: post an alert to Slack on `#billing-alerts`.",
+    "10. Finally, bring the escalated, retried and dunning payments back together and post one summary to `#billing-ops` reading exactly `Recovery run: 9 payments handled, 28558 EUR still at risk`."
+  ],
+  "palette": {
+    "include": [
+      "scheduleTrigger",
+      "manualTrigger",
+      "webhook",
+      "postgres",
+      "airtable",
+      "googleSheets",
+      "gmail",
+      "slack",
+      "httpRequest",
+      "removeDuplicates",
+      "merge",
+      "switch",
+      "sort",
+      "limit",
+      "loopOverItems",
+      "set",
+      "filter",
+      "if",
+      "splitOut",
+      "aggregate",
+      "noOp"
+    ],
+    "exclude": [],
+    "excludeNote": "Code is deliberately not offered. The assertions check that the routing, the join and the de-duplication were done with the nodes that name them, so a Code node producing the right rows would be rejected for the wrong reason. See the README authoring guide on mechanism vs outcome."
+  },
+  "initialWorkflow": {
+    "nodes": [
+      {
+        "id": "n1",
+        "name": "Nightly Recovery Run",
+        "type": "scheduleTrigger",
+        "position": [
+          -300,
+          0
+        ],
+        "parameters": {
+          "interval": "days",
+          "value": 1
+        }
+      }
+    ],
+    "connections": []
+  },
+  "credentialTypes": [
+    {
+      "name": "postgresApi",
+      "label": "Postgres",
+      "auth": [
+        {
+          "in": "header",
+          "name": "X-Api-Key",
+          "value": "{apiKey}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "apiKey",
+          "label": "Database API Key",
+          "type": "password",
+          "placeholder": "pg_test_\u2026"
+        }
+      ],
+      "docs": "The read-only key issued for this database."
+    },
+    {
+      "name": "airtableTokenApi",
+      "label": "Airtable Personal Access Token",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {token}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "token",
+          "label": "Personal Access Token",
+          "type": "password",
+          "placeholder": "pat\u2026"
+        }
+      ],
+      "docs": "Airtable \u2192 Builder hub \u2192 Personal access tokens."
+    },
+    {
+      "name": "googleSheetsOAuth2",
+      "label": "Google Sheets OAuth2",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {accessToken}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "accessToken",
+          "label": "Access Token",
+          "type": "password",
+          "placeholder": "ya29-\u2026"
+        }
+      ],
+      "docs": "Google Cloud \u2192 APIs & Services \u2192 Credentials \u2192 OAuth 2.0 access token."
+    },
+    {
+      "name": "gmailOAuth2",
+      "label": "Gmail OAuth2",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {accessToken}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "accessToken",
+          "label": "Access Token",
+          "type": "password",
+          "placeholder": "ya29-\u2026"
+        }
+      ],
+      "docs": "Google Cloud \u2192 APIs & Services \u2192 Credentials \u2192 OAuth 2.0 access token."
+    },
+    {
+      "name": "acmeBillingApi",
+      "label": "Acme Billing API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "X-Api-Key",
+          "value": "{apiKey}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "apiKey",
+          "label": "API Key",
+          "type": "password",
+          "placeholder": "sk_test_\u2026"
+        }
+      ],
+      "docs": "Acme Billing \u2192 Developers \u2192 API keys."
+    },
+    {
+      "name": "slackApi",
+      "label": "Slack API",
+      "auth": [
+        {
+          "in": "header",
+          "name": "Authorization",
+          "value": "Bearer {token}"
+        }
+      ],
+      "fields": [
+        {
+          "name": "token",
+          "label": "Bot User OAuth Token",
+          "type": "password",
+          "placeholder": "xoxb-\u2026"
+        }
+      ],
+      "docs": "Slack \u2192 Your apps \u2192 OAuth & Permissions \u2192 Bot User OAuth Token."
+    }
+  ],
+  "mockApi": {
+    "defaultDeny": true,
+    "hosts": {
+      "db.internal.test": {
+        "requireAuth": {
+          "header": "X-Api-Key",
+          "equals": "pg_test_FAKE_4b71ac"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/query",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "missing or invalid api key"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/query",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "rowCount": 14,
+              "rows": [
+                {
+                  "invoice": "INV-9001",
+                  "accountId": "ACC-101",
+                  "amount": 4820,
+                  "reason": "card_expired",
+                  "attempts": 1
+                },
+                {
+                  "invoice": "INV-9002",
+                  "accountId": "ACC-102",
+                  "amount": 12400,
+                  "reason": "insufficient_funds",
+                  "attempts": 2
+                },
+                {
+                  "invoice": "INV-9003",
+                  "accountId": "ACC-103",
+                  "amount": 2150,
+                  "reason": "card_declined",
+                  "attempts": 1
+                },
+                {
+                  "invoice": "INV-9002",
+                  "accountId": "ACC-102",
+                  "amount": 12400,
+                  "reason": "insufficient_funds",
+                  "attempts": 2
+                },
+                {
+                  "invoice": "INV-9004",
+                  "accountId": "ACC-101",
+                  "amount": 780,
+                  "reason": "card_declined",
+                  "attempts": 3
+                },
+                {
+                  "invoice": "INV-9005",
+                  "accountId": "ACC-102",
+                  "amount": 6300,
+                  "reason": "card_expired",
+                  "attempts": 1
+                },
+                {
+                  "invoice": "INV-9006",
+                  "accountId": "ACC-104",
+                  "amount": 1450,
+                  "reason": "card_declined",
+                  "attempts": 1
+                },
+                {
+                  "invoice": "INV-9007",
+                  "accountId": "ACC-105",
+                  "amount": 990,
+                  "reason": "insufficient_funds",
+                  "attempts": 2
+                },
+                {
+                  "invoice": "INV-9006",
+                  "accountId": "ACC-104",
+                  "amount": 1450,
+                  "reason": "card_declined",
+                  "attempts": 1
+                },
+                {
+                  "invoice": "INV-9008",
+                  "accountId": "ACC-104",
+                  "amount": 320,
+                  "reason": "card_expired",
+                  "attempts": 1
+                },
+                {
+                  "invoice": "INV-9009",
+                  "accountId": "ACC-105",
+                  "amount": 2100,
+                  "reason": "card_declined",
+                  "attempts": 4
+                },
+                {
+                  "invoice": "INV-9010",
+                  "accountId": "ACC-106",
+                  "amount": 49,
+                  "reason": "card_declined",
+                  "attempts": 1
+                },
+                {
+                  "invoice": "INV-9011",
+                  "accountId": "ACC-107",
+                  "amount": 129,
+                  "reason": "card_expired",
+                  "attempts": 2
+                },
+                {
+                  "invoice": "INV-9012",
+                  "accountId": "ACC-108",
+                  "amount": 890,
+                  "reason": "card_declined",
+                  "attempts": 1
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "api.airtable.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer pat_FAKE_billing_0000"
+        },
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/v0/appBilling/Accounts",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "invalid personal access token"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/v0/appBilling/Accounts",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "records": [
+                {
+                  "id": "recN1",
+                  "fields": {
+                    "accountId": "ACC-101",
+                    "company": "Nordwind Logistik",
+                    "tier": "enterprise",
+                    "manager": "hanna@acme-billing.test"
+                  }
+                },
+                {
+                  "id": "recN2",
+                  "fields": {
+                    "accountId": "ACC-102",
+                    "company": "Redwood Labs",
+                    "tier": "enterprise",
+                    "manager": "dana@acme-billing.test"
+                  }
+                },
+                {
+                  "id": "recN3",
+                  "fields": {
+                    "accountId": "ACC-103",
+                    "company": "Kirin Systems",
+                    "tier": "enterprise",
+                    "manager": "yuki@acme-billing.test"
+                  }
+                },
+                {
+                  "id": "recN4",
+                  "fields": {
+                    "accountId": "ACC-104",
+                    "company": "Alpina Retail",
+                    "tier": "mid_market",
+                    "manager": "team@acme-billing.test"
+                  }
+                },
+                {
+                  "id": "recN5",
+                  "fields": {
+                    "accountId": "ACC-105",
+                    "company": "Utrecht Print",
+                    "tier": "mid_market",
+                    "manager": "team@acme-billing.test"
+                  }
+                },
+                {
+                  "id": "recN6",
+                  "fields": {
+                    "accountId": "ACC-106",
+                    "company": "Cork Organics",
+                    "tier": "self_serve",
+                    "manager": "support@acme-billing.test"
+                  }
+                },
+                {
+                  "id": "recN7",
+                  "fields": {
+                    "accountId": "ACC-107",
+                    "company": "Boise Tooling",
+                    "tier": "self_serve",
+                    "manager": "support@acme-billing.test"
+                  }
+                },
+                {
+                  "id": "recN8",
+                  "fields": {
+                    "accountId": "ACC-108",
+                    "company": "Vantaa Metals",
+                    "tier": "trial",
+                    "manager": "support@acme-billing.test"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v0/appBilling/DunningQueue",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "id": "recQueued"
+            }
+          }
+        ]
+      },
+      "sheets.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer ya29-FAKE-finance-000"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/v4/spreadsheets/sheetRecovery2026/values/Outreach:append",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "invalid oauth token"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v4/spreadsheets/sheetRecovery2026/values/Outreach:append",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "updates": {
+                "updatedRows": 1
+              }
+            }
+          }
+        ]
+      },
+      "gmail.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer ya29-FAKE-gmail-0000"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/v1/messages/send",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "invalid oauth token"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v1/messages/send",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "id": "msg_sent"
+            }
+          }
+        ]
+      },
+      "billing.acme.test": {
+        "requireAuth": {
+          "header": "X-Api-Key",
+          "equals": "sk_test_FAKE_billing_91"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/v1/invoices/:id/retry",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "missing or invalid api key"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v1/invoices/INV-9006/retry",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "invoice": "INV-9006",
+              "retryScheduled": true
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v1/invoices/INV-9007/retry",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "invoice": "INV-9007",
+              "retryScheduled": true
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v1/invoices/INV-9008/retry",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "invoice": "INV-9008",
+              "retryScheduled": true
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v1/invoices/INV-9009/retry",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "invoice": "INV-9009",
+              "retryScheduled": true
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/v1/invoices/:id/retry",
+            "when": "authenticated",
+            "status": 404,
+            "body": {
+              "error": "invoice is not eligible for retry"
+            }
+          }
+        ]
+      },
+      "slack.test": {
+        "requireAuth": {
+          "header": "Authorization",
+          "equals": "Bearer xoxb-FAKE-000000-000000"
+        },
+        "routes": [
+          {
+            "method": "POST",
+            "path": "/api/chat.postMessage",
+            "when": "unauthenticated",
+            "status": 401,
+            "body": {
+              "error": "not_authed"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/api/chat.postMessage",
+            "when": "authenticated",
+            "status": 200,
+            "body": {
+              "ok": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "triggerPayload": {
+    "scheduleTrigger": [
+      {
+        "triggeredAt": "2026-07-31T02:00:00.000Z"
+      }
+    ],
+    "manualTrigger": [
+      {}
+    ],
+    "webhook": [
+      {
+        "body": {
+          "event": "payment.batch.failed",
+          "since": "2026-07-30T02:00:00.000Z"
+        },
+        "headers": {
+          "content-type": "application/json",
+          "x-acme-signature": "FAKE"
+        },
+        "query": {}
+      }
+    ]
+  },
+  "vars": {
+    "riskCurrency": "EUR"
+  },
+  "env": {},
+  "limits": {
+    "maxNodes": 40,
+    "maxItems": 5000,
+    "maxExecutionMs": 8000,
+    "maxSimulatedMs": 6000
+  },
+  "assertions": [
+    {
+      "id": "reads-failed-payments",
+      "type": "httpCalled",
+      "method": "POST",
+      "path": "/__mock/db.internal.test/query",
+      "times": 1,
+      "message": "The payments query should run exactly once, not once per item."
+    },
+    {
+      "id": "dedupes-invoices",
+      "type": "nodeExists",
+      "nodeType": "removeDuplicates",
+      "message": "The query returns some invoices twice \u2014 they need de-duplicating."
+    },
+    {
+      "id": "twelve-distinct-invoices",
+      "type": "itemCount",
+      "nodeType": "removeDuplicates",
+      "port": "out",
+      "comparison": "exactly",
+      "count": 12,
+      "message": "Fourteen rows come back and twelve of them are distinct invoices."
+    },
+    {
+      "id": "loads-accounts",
+      "type": "httpCalled",
+      "method": "GET",
+      "path": "/__mock/api.airtable.test/v0/appBilling/Accounts",
+      "times": 1,
+      "message": "The Airtable accounts table should be listed exactly once."
+    },
+    {
+      "id": "joins-payments-to-accounts",
+      "type": "nodeExists",
+      "nodeType": "merge",
+      "message": "The tier and the manager live on the account, not the payment."
+    },
+    {
+      "id": "joins-on-account-id",
+      "type": "expressionContains",
+      "nodeType": "merge",
+      "param": "matchField",
+      "substring": "accountId",
+      "message": "The join should match payments to accounts on accountId."
+    },
+    {
+      "id": "routes-by-tier",
+      "type": "nodeExists",
+      "nodeType": "switch",
+      "message": "Payments should be routed by tier."
+    },
+    {
+      "id": "three-escalated",
+      "type": "itemCount",
+      "nodeType": "gmail",
+      "port": "in",
+      "comparison": "exactly",
+      "count": 3,
+      "message": "Only the three largest enterprise payments get a personal email."
+    },
+    {
+      "id": "biggest-first",
+      "type": "sinkPayloadMatches",
+      "nodeType": "gmail",
+      "match": {
+        "to": "dana@acme-billing.test",
+        "subject": "Failed payment: INV-9002 (12400 EUR)"
+      },
+      "message": "INV-9002 is the largest failed payment at 12400 and must be escalated."
+    },
+    {
+      "id": "outreach-logged",
+      "type": "httpCalled",
+      "method": "POST",
+      "path": "/__mock/sheets.test/v4/spreadsheets/sheetRecovery2026/values/Outreach:append",
+      "times": 3,
+      "message": "One sheet row per escalated payment: three rows, three calls."
+    },
+    {
+      "id": "retries-in-batches",
+      "type": "nodeExists",
+      "nodeType": "loopOverItems",
+      "message": "Mid-market retries should go two invoices at a time."
+    },
+    {
+      "id": "four-retries-attempted",
+      "type": "httpCalled",
+      "method": "POST",
+      "path": "/__mock/billing.acme.test/v1/invoices/INV-9006/retry",
+      "times": 1,
+      "message": "Each mid-market invoice should be retried once."
+    },
+    {
+      "id": "dunning-queued",
+      "type": "httpCalled",
+      "method": "POST",
+      "path": "/__mock/api.airtable.test/v0/appBilling/DunningQueue",
+      "times": 2,
+      "message": "The two self-serve payments should be queued for dunning."
+    },
+    {
+      "id": "unknown-tier-flagged",
+      "type": "sinkPayloadMatches",
+      "nodeType": "slack",
+      "match": {
+        "channel": "#billing-alerts"
+      },
+      "message": "A tier no rule matches must be flagged, not silently dropped."
+    },
+    {
+      "id": "one-summary-posted",
+      "type": "sinkPayloadMatches",
+      "nodeType": "slack",
+      "match": {
+        "channel": "#billing-ops",
+        "text": "Recovery run: 9 payments handled, 28558 EUR still at risk"
+      },
+      "message": "One summary on #billing-ops with the count and the total at risk."
+    },
+    {
+      "id": "no-node-errors",
+      "type": "noNodeErrors",
+      "message": "Every node should complete without an error."
+    }
+  ]
+}

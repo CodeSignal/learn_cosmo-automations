@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "When clicking Execute",
+      "type": "manualTrigger",
+      "position": [
+        -280,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n2",
+      "name": "Fetch Refund Requests",
+      "type": "httpRequest",
+      "position": [
+        -60,
+        0
+      ],
+      "credentialId": "cred_hd",
+      "parameters": {
+        "method": "GET",
+        "url": "https://helpdesk.acme.test/v1/refund-requests",
+        "sendQuery": false,
+        "query": [],
+        "sendBody": false,
+        "body": [],
+        "neverError": false
+      }
+    },
+    {
+      "id": "n3",
+      "name": "One Item Per Request",
+      "type": "splitOut",
+      "position": [
+        160,
+        0
+      ],
+      "parameters": {
+        "field": "requests",
+        "include": "noOtherFields"
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Decide Refund",
+      "type": "agent",
+      "position": [
+        380,
+        0
+      ],
+      "parameters": {
+        "mode": "runOncePerItem",
+        "model": "gpt-5",
+        "systemPrompt": "You decide refund requests under a 30-day returns policy. Look up the order when the decision depends on delivery.",
+        "userPrompt": "=Decide this refund request.\nRequest: {{ $json.request }}\nOrder: {{ $json.orderId }}\nReason: {{ $json.reason }}\n\nReturn a decision: refund or deny.",
+        "outputFields": [
+          "decision"
+        ]
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Look Up Order",
+      "type": "agentTool",
+      "position": [
+        380,
+        200
+      ],
+      "parameters": {
+        "toolName": "lookup_order",
+        "description": "Looks up an order by its id and returns its delivery status and how many days ago it was delivered.",
+        "model": "gpt-5-mini",
+        "systemPrompt": "You look up orders. Answer only from the order record.",
+        "userPrompt": "=Look up order {{ $json.orderId }}. Return status and daysSinceDelivery.",
+        "outputFields": [
+          "status",
+          "daysSinceDelivery"
+        ]
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Refunds Only",
+      "type": "filter",
+      "position": [
+        620,
+        0
+      ],
+      "parameters": {
+        "combinator": "and",
+        "conditions": [
+          {
+            "left": "={{ $json.decision }}",
+            "op": "equals",
+            "right": "refund"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n7",
+      "name": "Count Refunds",
+      "type": "aggregate",
+      "position": [
+        840,
+        0
+      ],
+      "parameters": {
+        "mode": "summarize",
+        "outputs": [
+          {
+            "as": "count",
+            "op": "count"
+          }
+        ],
+        "field": "data"
+      }
+    },
+    {
+      "id": "n8",
+      "name": "Tell Finance",
+      "type": "slack",
+      "position": [
+        1060,
+        0
+      ],
+      "credentialId": "cred_slack",
+      "parameters": {
+        "channel": "#refunds",
+        "text": "={{ $json.count }} refunds approved"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "n1",
+      "fromOutput": 0,
+      "to": "n2",
+      "toInput": 0
+    },
+    {
+      "from": "n2",
+      "fromOutput": 0,
+      "to": "n3",
+      "toInput": 0
+    },
+    {
+      "from": "n3",
+      "fromOutput": 0,
+      "to": "n4",
+      "toInput": 0
+    },
+    {
+      "from": "n4",
+      "fromOutput": 0,
+      "to": "n6",
+      "toInput": 0
+    },
+    {
+      "from": "n6",
+      "fromOutput": 0,
+      "to": "n7",
+      "toInput": 0
+    },
+    {
+      "from": "n7",
+      "fromOutput": 0,
+      "to": "n8",
+      "toInput": 0
+    }
+  ],
+  "credentials": [
+    {
+      "id": "cred_hd",
+      "name": "Helpdesk",
+      "type": "helpdeskApi",
+      "fields": {
+        "apiKey": "hd_test_FAKE_71c0"
+      }
+    },
+    {
+      "id": "cred_slack",
+      "name": "Refunds Slack",
+      "type": "slackApi",
+      "fields": {
+        "token": "xoxb-FAKE-000000-000000"
+      }
+    }
+  ]
+}

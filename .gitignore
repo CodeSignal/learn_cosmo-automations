@@ -1,0 +1,29 @@
+node_modules/
+dist/
+
+# Session state, written by the sim at runtime. Never committed: solution.json
+# is the candidate's work and execution.json is the trace of their last run.
+solution.json
+execution.json
+# The learner's interaction record, written at runtime.
+activity.log
+# Staged by `npm run demo <scenario>`: the session's copy of the scenario, which
+# a real session receives from the base task. The canonical ones live in scenarios/.
+/scenario.json
+
+# Grading-experiment output
+scenarios/*/out/
+
+.DS_Store
+*.log
+
+
+# Locally built release tarball (CI builds its own)
+release.tar.gz
+
+# Recorded demo videos. Regenerate with `npm run record` — a 2MB binary per
+# recording does not belong in git history, and the recorder is the source of truth.
+docs/media/
+
+# Local editor/agent tooling
+.claude/

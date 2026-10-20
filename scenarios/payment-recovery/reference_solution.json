@@ -1,0 +1,547 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "Nightly Recovery Run",
+      "type": "scheduleTrigger",
+      "position": [
+        -300,
+        0
+      ],
+      "parameters": {
+        "interval": "days",
+        "value": 1
+      }
+    },
+    {
+      "id": "n2",
+      "name": "Fetch Failed Payments",
+      "type": "postgres",
+      "position": [
+        -90,
+        -120
+      ],
+      "credentialId": "cred_db",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT invoice, accountId, amount, reason, attempts FROM payments WHERE status = 'failed'",
+        "table": "",
+        "columns": []
+      }
+    },
+    {
+      "id": "n3",
+      "name": "One Row Per Invoice",
+      "type": "removeDuplicates",
+      "position": [
+        120,
+        -120
+      ],
+      "parameters": {
+        "compare": "selectedFields",
+        "fields": [
+          "invoice"
+        ]
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Load Account Tiers",
+      "type": "airtable",
+      "position": [
+        -90,
+        130
+      ],
+      "credentialId": "cred_airtable",
+      "parameters": {
+        "operation": "list",
+        "baseId": "appBilling",
+        "table": "Accounts",
+        "fields": []
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Attach Account",
+      "type": "merge",
+      "position": [
+        330,
+        0
+      ],
+      "parameters": {
+        "mode": "combineByFields",
+        "matchField": "accountId",
+        "joinMode": "keepMatches",
+        "includeUnpaired": false,
+        "useDataOf": "input1"
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Route By Tier",
+      "type": "switch",
+      "position": [
+        540,
+        0
+      ],
+      "parameters": {
+        "rules": [
+          {
+            "output": "enterprise",
+            "left": "={{ $json.tier }}",
+            "op": "equals",
+            "right": "enterprise"
+          },
+          {
+            "output": "mid market",
+            "left": "={{ $json.tier }}",
+            "op": "equals",
+            "right": "mid_market"
+          },
+          {
+            "output": "self serve",
+            "left": "={{ $json.tier }}",
+            "op": "equals",
+            "right": "self_serve"
+          }
+        ],
+        "fallback": "extra",
+        "allMatches": false
+      }
+    },
+    {
+      "id": "n7",
+      "name": "Biggest First",
+      "type": "sort",
+      "position": [
+        780,
+        -350
+      ],
+      "parameters": {
+        "type": "fields",
+        "fields": [
+          {
+            "field": "amount",
+            "order": "descending"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n8",
+      "name": "Top Three",
+      "type": "limit",
+      "position": [
+        990,
+        -350
+      ],
+      "parameters": {
+        "maxItems": 3,
+        "keep": "firstItems"
+      }
+    },
+    {
+      "id": "n9",
+      "name": "Email Account Manager",
+      "type": "gmail",
+      "position": [
+        1200,
+        -430
+      ],
+      "credentialId": "cred_gmail",
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "to": "={{ $json.manager }}",
+        "subject": "=Failed payment: {{ $json.invoice }} ({{ $json.amount }} {{ $vars.riskCurrency }})",
+        "message": "=Hi — {{ $json.company }} has a failed payment of {{ $json.amount }} {{ $vars.riskCurrency }} on invoice {{ $json.invoice }} ({{ $json.reason }}, attempt {{ $json.attempts }}). Please reach out today.",
+        "limit": 10
+      }
+    },
+    {
+      "id": "n10",
+      "name": "Log Outreach",
+      "type": "googleSheets",
+      "position": [
+        1200,
+        -290
+      ],
+      "credentialId": "cred_sheets",
+      "parameters": {
+        "operation": "append",
+        "documentId": "sheetRecovery2026",
+        "sheetName": "Outreach",
+        "columns": [
+          {
+            "name": "Invoice",
+            "value": "={{ $json.invoice }}"
+          },
+          {
+            "name": "Company",
+            "value": "={{ $json.company }}"
+          },
+          {
+            "name": "Amount",
+            "value": "={{ $json.amount }}"
+          },
+          {
+            "name": "Manager",
+            "value": "={{ $json.manager }}"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n11",
+      "name": "Retry Two At A Time",
+      "type": "loopOverItems",
+      "position": [
+        780,
+        -120
+      ],
+      "parameters": {
+        "batchSize": 2
+      }
+    },
+    {
+      "id": "n12",
+      "name": "Retry Charge",
+      "type": "httpRequest",
+      "position": [
+        990,
+        -20
+      ],
+      "credentialId": "cred_billing",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://billing.acme.test/v1/invoices/{{ $json.invoice }}/retry",
+        "sendQuery": false,
+        "query": [],
+        "sendBody": true,
+        "body": [
+          {
+            "name": "reason",
+            "value": "={{ $json.reason }}"
+          }
+        ],
+        "neverError": false
+      }
+    },
+    {
+      "id": "n13",
+      "name": "Mark Retried",
+      "type": "set",
+      "position": [
+        990,
+        -170
+      ],
+      "parameters": {
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "action",
+            "value": "retried"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n14",
+      "name": "Tag For Dunning",
+      "type": "set",
+      "position": [
+        780,
+        170
+      ],
+      "parameters": {
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "action",
+            "value": "dunning"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n15",
+      "name": "Queue For Dunning",
+      "type": "airtable",
+      "position": [
+        990,
+        230
+      ],
+      "credentialId": "cred_airtable",
+      "parameters": {
+        "operation": "create",
+        "baseId": "appBilling",
+        "table": "DunningQueue",
+        "fields": [
+          {
+            "name": "Invoice",
+            "value": "={{ $json.invoice }}"
+          },
+          {
+            "name": "Company",
+            "value": "={{ $json.company }}"
+          },
+          {
+            "name": "Amount",
+            "value": "={{ $json.amount }}"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n16",
+      "name": "Alert Unknown Tier",
+      "type": "slack",
+      "position": [
+        780,
+        370
+      ],
+      "credentialId": "cred_slack",
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#billing-alerts",
+        "text": "=Unrouted payment {{ $json.invoice }} — {{ $json.company }} is on tier \"{{ $json.tier }}\", which no rule handles."
+      }
+    },
+    {
+      "id": "n17",
+      "name": "All Handled",
+      "type": "merge",
+      "position": [
+        1410,
+        -60
+      ],
+      "parameters": {
+        "mode": "append",
+        "matchField": "",
+        "joinMode": "keepMatches",
+        "includeUnpaired": false,
+        "useDataOf": "input1"
+      }
+    },
+    {
+      "id": "n18",
+      "name": "Summarise Run",
+      "type": "aggregate",
+      "position": [
+        1620,
+        -60
+      ],
+      "parameters": {
+        "mode": "summarize",
+        "outputs": [
+          {
+            "as": "count",
+            "op": "count"
+          },
+          {
+            "as": "atRisk",
+            "op": "sum",
+            "field": "amount"
+          }
+        ],
+        "field": "data"
+      }
+    },
+    {
+      "id": "n19",
+      "name": "Post To Billing Ops",
+      "type": "slack",
+      "position": [
+        1830,
+        -60
+      ],
+      "credentialId": "cred_slack",
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#billing-ops",
+        "text": "=Recovery run: {{ $json.count }} payments handled, {{ $json.atRisk }} {{ $vars.riskCurrency }} still at risk"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "n1",
+      "fromOutput": 0,
+      "to": "n2",
+      "toInput": 0
+    },
+    {
+      "from": "n1",
+      "fromOutput": 0,
+      "to": "n4",
+      "toInput": 0
+    },
+    {
+      "from": "n2",
+      "fromOutput": 0,
+      "to": "n3",
+      "toInput": 0
+    },
+    {
+      "from": "n3",
+      "fromOutput": 0,
+      "to": "n5",
+      "toInput": 0
+    },
+    {
+      "from": "n4",
+      "fromOutput": 0,
+      "to": "n5",
+      "toInput": 1
+    },
+    {
+      "from": "n5",
+      "fromOutput": 0,
+      "to": "n6",
+      "toInput": 0
+    },
+    {
+      "from": "n6",
+      "fromOutput": 0,
+      "to": "n7",
+      "toInput": 0
+    },
+    {
+      "from": "n6",
+      "fromOutput": 1,
+      "to": "n11",
+      "toInput": 0
+    },
+    {
+      "from": "n6",
+      "fromOutput": 2,
+      "to": "n14",
+      "toInput": 0
+    },
+    {
+      "from": "n6",
+      "fromOutput": 3,
+      "to": "n16",
+      "toInput": 0
+    },
+    {
+      "from": "n7",
+      "fromOutput": 0,
+      "to": "n8",
+      "toInput": 0
+    },
+    {
+      "from": "n8",
+      "fromOutput": 0,
+      "to": "n9",
+      "toInput": 0
+    },
+    {
+      "from": "n8",
+      "fromOutput": 0,
+      "to": "n10",
+      "toInput": 0
+    },
+    {
+      "from": "n8",
+      "fromOutput": 0,
+      "to": "n17",
+      "toInput": 0
+    },
+    {
+      "from": "n11",
+      "fromOutput": 1,
+      "to": "n12",
+      "toInput": 0
+    },
+    {
+      "from": "n11",
+      "fromOutput": 0,
+      "to": "n13",
+      "toInput": 0
+    },
+    {
+      "from": "n13",
+      "fromOutput": 0,
+      "to": "n17",
+      "toInput": 1
+    },
+    {
+      "from": "n14",
+      "fromOutput": 0,
+      "to": "n15",
+      "toInput": 0
+    },
+    {
+      "from": "n14",
+      "fromOutput": 0,
+      "to": "n17",
+      "toInput": 1
+    },
+    {
+      "from": "n17",
+      "fromOutput": 0,
+      "to": "n18",
+      "toInput": 0
+    },
+    {
+      "from": "n18",
+      "fromOutput": 0,
+      "to": "n19",
+      "toInput": 0
+    }
+  ],
+  "credentials": [
+    {
+      "id": "cred_airtable",
+      "name": "Airtable (billing base)",
+      "type": "airtableTokenApi",
+      "fields": {
+        "token": "pat_FAKE_billing_0000"
+      }
+    },
+    {
+      "id": "cred_billing",
+      "name": "Acme Billing API",
+      "type": "acmeBillingApi",
+      "fields": {
+        "apiKey": "sk_test_FAKE_billing_91"
+      }
+    },
+    {
+      "id": "cred_db",
+      "name": "Billing DB (read-only)",
+      "type": "postgresApi",
+      "fields": {
+        "apiKey": "pg_test_FAKE_4b71ac"
+      }
+    },
+    {
+      "id": "cred_gmail",
+      "name": "Gmail (billing@)",
+      "type": "gmailOAuth2",
+      "fields": {
+        "accessToken": "ya29-FAKE-gmail-0000"
+      }
+    },
+    {
+      "id": "cred_sheets",
+      "name": "Google Sheets (finance)",
+      "type": "googleSheetsOAuth2",
+      "fields": {
+        "accessToken": "ya29-FAKE-finance-000"
+      }
+    },
+    {
+      "id": "cred_slack",
+      "name": "Billing Slack",
+      "type": "slackApi",
+      "fields": {
+        "token": "xoxb-FAKE-000000-000000"
+      }
+    }
+  ]
+}

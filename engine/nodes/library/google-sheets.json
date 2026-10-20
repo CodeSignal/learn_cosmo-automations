@@ -1,0 +1,106 @@
+{
+  "type": "googleSheets",
+  "label": "Google Sheets",
+  "group": "integration",
+  "icon": "grid",
+  "description": "Reads rows from a sheet, or appends rows to it.",
+  "credential": true,
+  "credentialType": "googleSheetsOAuth2",
+  "latency": {
+    "base": 280,
+    "perItem": 80
+  },
+  "operations": {
+    "read": {
+      "mode": "runOnceForAllItems",
+      "request": {
+        "method": "GET",
+        "url": "https://sheets.test/v4/spreadsheets/{documentId}/values/{sheetName}"
+      },
+      "itemsFrom": "values"
+    },
+    "append": {
+      "mode": "runOncePerItem",
+      "request": {
+        "method": "POST",
+        "url": "https://sheets.test/v4/spreadsheets/{documentId}/values/{sheetName}:append",
+        "body": {
+          "values": [
+            "{columns}"
+          ]
+        }
+      },
+      "sink": "values.0",
+      "emit": {
+        "from": "sent",
+        "path": "values.0",
+        "merge": {
+          "appended": true
+        }
+      }
+    }
+  },
+  "params": [
+    {
+      "name": "documentId",
+      "label": "Document ID",
+      "type": "string",
+      "placeholder": "1a2b3c\u2026"
+    },
+    {
+      "name": "sheetName",
+      "label": "Sheet Name",
+      "type": "string",
+      "default": "Sheet1",
+      "placeholder": "Sheet1"
+    },
+    {
+      "name": "columns",
+      "label": "Columns To Send",
+      "type": "fields",
+      "showFor": {
+        "operation": "append"
+      },
+      "hint": "One row per item: the column name and the value to write."
+    }
+  ],
+  "docs": {
+    "summary": "Reads rows out of a spreadsheet, or appends rows to one.",
+    "mode": "It depends on the operation, and the node tells you which: `read` runs once and returns one item per row; `append` runs once per item and writes one row each.",
+    "when": "Use it as the source when the data lives in a sheet, or as the destination when a human needs to look at the result afterwards. A sheet is often the most useful output an automation can have.",
+    "params": [
+      {
+        "name": "operation",
+        "text": "`read` fetches the sheet. `append` adds rows to the end of it."
+      },
+      {
+        "name": "documentId",
+        "text": "The spreadsheet's id."
+      },
+      {
+        "name": "sheetName",
+        "text": "Which tab within the document."
+      },
+      {
+        "name": "columns",
+        "text": "For `append`: one row per item, built from the column name and the value to write."
+      }
+    ],
+    "examples": [
+      {
+        "label": "Append one row per item",
+        "code": "operation: append\ncolumns:   Order  = ={{ $json.id }}\n           Region = ={{ $json.region }}\n           Total  = ={{ $json.total }}"
+      }
+    ],
+    "gotchas": [
+      "Read gives you one item per row, already flattened \u2014 no Split Out needed afterwards.",
+      "Append runs once per item, so the number of rows written is the number of items that reached it. Check the item count on the node before blaming the sheet.",
+      "A column name you did not list is not written. There is no \"everything else\" shortcut."
+    ],
+    "seeAlso": [
+      "airtable",
+      "postgres",
+      "splitOut"
+    ]
+  }
+}

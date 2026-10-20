@@ -1,0 +1,700 @@
+/*
+ * The canvas: node tiles, the node panel, the empty state, the context menu.
+ * React Flow's own chrome (handles, edges, controls) is in xyflow-theme.css.
+ */
+
+/* ── node glyphs, by group ───────────────────────────────────────────── */
+
+/*
+ * Each group has a hue so a workflow reads at a glance — triggers, routing,
+ * data, AI, outside services — and every hue is a design system token. The
+ * hues are deliberately NOT green or red: those mean success and error on the
+ * same tiles.
+ */
+.ca-glyph {
+  --ca-glyph-fg: var(--Colors-Icon-Strong);
+  --ca-glyph-bg: var(--Colors-Control-Neutral-Soft);
+
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ca-glyph-fg);
+}
+
+.ca-glyph-trigger {
+  --ca-glyph-fg: var(--Colors-Alert-Info-Default);
+  --ca-glyph-bg: var(--Colors-Emphasis-Sky-Blue);
+}
+
+.ca-glyph-flow {
+  --ca-glyph-fg: var(--Colors-Icon-Primary);
+  --ca-glyph-bg: var(--Colors-Emphasis-Primary-Subtle);
+}
+
+.ca-glyph-ai {
+  --ca-glyph-fg: var(--Colors-Control-Progress-Midnight-Blue-Thumb);
+  --ca-glyph-bg: var(--Colors-Emphasis-Midnight-Blue);
+}
+
+.ca-glyph-transport,
+.ca-glyph-integration {
+  --ca-glyph-fg: var(--Colors-Alert-Warning-Medium-Dark);
+  --ca-glyph-bg: var(--Colors-Alert-Warning-Lighter);
+}
+
+.ca-glyph-tile {
+  background: var(--ca-glyph-bg);
+  border-radius: var(--UI-Radius-radius-xs);
+}
+
+.ca-glyph svg { display: block; }
+
+.ca-glyph-sm { width: 22px; height: 22px; }
+.ca-glyph-sm svg { width: 13px; height: 13px; }
+.ca-glyph-md { width: 32px; height: 32px; border-radius: var(--UI-Radius-radius-s); }
+.ca-glyph-md svg { width: 17px; height: 17px; }
+.ca-glyph-lg { width: 40px; height: 40px; }
+.ca-glyph-lg svg { width: 34px; height: 34px; }
+
+/* ── node tile ───────────────────────────────────────────────────────── */
+
+.ca-node-wrap {
+  position: relative;
+  width: 80px;
+  height: var(--ca-node-height, 80px);
+}
+
+.ca-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border: 1.5px solid var(--Colors-Border-Strong);
+  border-radius: var(--UI-Radius-radius-m);
+  background: var(--Colors-Surface-Container-Base);
+  box-shadow: 0 1px 3px var(--Colors-Emphasis-Shadow-Subtle);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Triggers start the workflow, and their shape says so: rounded on the left. */
+.ca-node-wrap.is-trigger .ca-node {
+  border-top-left-radius: calc(var(--ca-node-height, 80px) / 2);
+  border-bottom-left-radius: calc(var(--ca-node-height, 80px) / 2);
+}
+
+.ca-node-wrap:hover .ca-node {
+  border-color: var(--Colors-Border-Stronger);
+  box-shadow: 0 4px 12px var(--Colors-Emphasis-Shadow-Soft);
+}
+
+.ca-node-wrap.is-selected .ca-node {
+  border-color: var(--Colors-Border-Highlight-Strong);
+  box-shadow: 0 0 0 4px var(--Colors-Border-Primary-Selection);
+}
+
+.ca-node-wrap.is-success .ca-node { border-color: var(--Colors-Alert-Success-Default); }
+.ca-node-wrap.is-error .ca-node { border-color: var(--Colors-Alert-Error-Default); }
+.ca-node-wrap.is-paused .ca-node { border-color: var(--Colors-Alert-Warning-Default); }
+
+.ca-node-wrap.is-running .ca-node {
+  border-color: var(--Colors-Primary-Default);
+  animation: ca-node-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes ca-node-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--Colors-Border-Primary-Selection); }
+  50% { box-shadow: 0 0 0 6px var(--Colors-Border-Primary-Selection); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-node-wrap.is-running .ca-node { animation: none; }
+}
+
+/* Selection still wins over run state, so you can see what you clicked. */
+.ca-node-wrap.is-selected.is-success .ca-node,
+.ca-node-wrap.is-selected.is-error .ca-node {
+  box-shadow: 0 0 0 4px var(--Colors-Border-Primary-Selection);
+}
+
+.ca-node-wrap.is-disabled .ca-node,
+.ca-node-wrap.is-skipped .ca-node {
+  border-style: dashed;
+  background: var(--Colors-Surface-App-Subtle);
+}
+
+.ca-node-wrap.is-disabled .ca-glyph,
+.ca-node-wrap.is-skipped .ca-glyph { color: var(--Colors-Icon-Light); }
+
+/* Corner badge: the run state as a shape, not just a border colour. */
+.ca-node-badge {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--Colors-Surface-App-Base);
+  color: var(--Colors-Text-Body-White);
+}
+
+.ca-node-badge-success { background: var(--Colors-Alert-Success-Default); }
+.ca-node-badge-error { background: var(--Colors-Alert-Error-Default); }
+.ca-node-badge-paused { background: var(--Colors-Alert-Warning-Default); color: var(--Colors-Text-Body-Strongest); }
+
+.ca-node-badge-running {
+  background: var(--Colors-Surface-Container-Base);
+  border-color: var(--Colors-Surface-App-Base);
+  color: var(--Colors-Primary-Default);
+}
+
+/* A loop body's pass count — the loop's only visible effect. */
+.ca-node-passes {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  padding: 0 var(--UI-Spacing-spacing-xxs);
+  border-radius: var(--UI-Radius-radius-mxl);
+  border: 2px solid var(--Colors-Surface-App-Base);
+  background: var(--Colors-Primary-Default);
+  color: var(--Colors-Text-Body-White);
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The caption: name and summary, under the tile, centred. Absolutely placed so
+ * React Flow measures the tile alone — handles and edges anchor to the square,
+ * not to however long a candidate's node name is.
+ */
+.ca-node-caption {
+  position: absolute;
+  top: calc(100% + var(--UI-Spacing-spacing-s));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 168px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-min);
+  text-align: center;
+  pointer-events: none;
+}
+
+.ca-node-name {
+  max-width: 100%;
+  color: var(--Colors-Text-Body-Strong);
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/*
+ * Summaries are arbitrary candidate-authored expressions, so they degrade at
+ * any length: one line, an ellipsis, the full text in the tooltip and the
+ * detail view.
+ */
+.ca-node-sub {
+  max-width: 100%;
+  color: var(--Colors-Text-Body-Lighter);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ca-node-summary { font-size: var(--Fonts-Special-xs); }
+
+/*
+ * Wires run underneath nodes, and in a dense graph some pass under a caption.
+ * A canvas-coloured backdrop behind the text keeps a wire from striking
+ * through a name, without boxing the caption in.
+ */
+.ca-node-name,
+.ca-node-sub {
+  padding: 0 var(--UI-Spacing-spacing-xxs);
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: var(--Colors-Surface-App-Base);
+}
+.ca-node-sub-error { color: var(--Colors-Alert-Error-Default); }
+.ca-node-sub-warning { color: var(--Colors-Alert-Warning-Medium-Dark); }
+.ca-node-sub-primary { color: var(--Colors-Text-Body-Primary); }
+.ca-node-sub-muted { color: var(--Colors-Text-Body-Lighter); font-style: italic; }
+
+/*
+ * An agent's Tools port, at the foot of its caption: a label, and the
+ * diamond handle a tool's wire comes up to.
+ */
+.ca-node-tools {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  height: 26px;
+  padding-top: var(--UI-Spacing-spacing-xxs);
+}
+
+.ca-node-tools-label {
+  height: fit-content;
+  padding: 0 var(--UI-Spacing-spacing-xxs);
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: var(--Colors-Surface-App-Base);
+  color: var(--Colors-Control-Progress-Midnight-Blue-Thumb);
+  font-weight: 500;
+}
+
+.ca-node-tools .react-flow__handle { pointer-events: auto; }
+
+/* ── hover toolbar ───────────────────────────────────────────────────── */
+
+.ca-node-toolbar {
+  position: absolute;
+  bottom: calc(100% + var(--UI-Spacing-spacing-xs));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--UI-Spacing-spacing-min);
+  padding: var(--UI-Spacing-spacing-min);
+  border: 1px solid var(--Colors-Border-Soft);
+  border-radius: var(--UI-Radius-radius-s);
+  background: var(--Colors-Surface-Container-Highest);
+  box-shadow: 0 4px 12px var(--Colors-Emphasis-Shadow-Soft);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  z-index: 2;
+}
+
+/* A bridge over the gap, so moving the pointer up to the toolbar keeps it open. */
+.ca-node-toolbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: var(--UI-Spacing-spacing-xs);
+}
+
+.ca-node-wrap:hover .ca-node-toolbar,
+.ca-node-wrap:focus-within .ca-node-toolbar {
+  opacity: 1;
+  visibility: visible;
+}
+
+.react-flow__node.dragging .ca-node-toolbar { opacity: 0; visibility: hidden; }
+
+/* A tool's output handle is on its top edge; keep the toolbar clear of it. */
+.ca-node-wrap.is-tool .ca-node-toolbar { bottom: calc(100% + var(--UI-Spacing-spacing-ml)); }
+
+.ca-node-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: none;
+  color: var(--Colors-Icon-Default);
+  cursor: pointer;
+}
+
+.ca-node-tool:hover:not(:disabled) {
+  background: var(--Colors-Control-Neutral-Soft);
+  color: var(--Colors-Icon-Strong);
+}
+
+.ca-node-tool:disabled { color: var(--Colors-Icon-Light); cursor: default; }
+
+.ca-node-tool-danger:hover:not(:disabled) {
+  background: var(--Colors-Alert-Error-Lighter);
+  color: var(--Colors-Alert-Error-Default);
+}
+
+/* ── ports ───────────────────────────────────────────────────────────── */
+
+/*
+ * One row per output, centred on its handle: name, then — on an unconnected
+ * output — a stub line, its item count and a "+" button. One row means a
+ * port's details can never land on its neighbour's, however tightly a Switch
+ * packs its ports. It starts just past the handle, so the handle stays the
+ * thing you drag from.
+ */
+.ca-node-port {
+  position: absolute;
+  left: calc(100% + var(--UI-Spacing-spacing-s));
+  display: flex;
+  align-items: center;
+  height: 20px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.ca-node-port-label {
+  color: var(--Colors-Text-Body-Light);
+  /* Switch's port names are whatever the candidate typed. Truncate rather than
+     let a long one run across the neighbouring node. */
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 16px;
+  /* The port's own wire starts behind this name, and wires from neighbouring
+     ports curve past it; the backdrop keeps them behind the text. */
+  padding: 0 var(--UI-Spacing-spacing-xxs);
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: var(--Colors-Surface-App-Base);
+}
+
+/* Merge's inputs are numbered, and the numbers go on the left of the tile. */
+.ca-node-port-label-in {
+  position: absolute;
+  right: calc(100% + var(--UI-Spacing-spacing-s));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.ca-node-stub-line {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 0;
+  border-top: 1.5px solid var(--Colors-Border-Strong);
+}
+
+.ca-node-stub-line-short { width: 10px; }
+
+.ca-node-stub-count {
+  padding: 0 var(--UI-Spacing-spacing-xxs);
+  color: var(--Colors-Text-Body-Light);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-node-stub-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1.5px solid var(--Colors-Border-Strong);
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: var(--Colors-Surface-Container-Base);
+  color: var(--Colors-Icon-Default);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ca-node-stub-add:hover {
+  border-color: var(--Colors-Primary-Default);
+  background: var(--Colors-Primary-Default);
+  color: var(--Colors-Text-Body-White);
+}
+
+/* ── empty canvas ────────────────────────────────────────────────────── */
+
+.ca-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ca-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--UI-Spacing-spacing-ms);
+  pointer-events: none;
+}
+
+.ca-canvas-empty-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--Colors-Text-Body-Medium);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ca-canvas-empty-plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  border: 2px dashed var(--Colors-Border-Stronger);
+  border-radius: var(--UI-Radius-radius-m);
+  color: var(--Colors-Icon-Default);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.ca-canvas-empty-add:hover .ca-canvas-empty-plus {
+  border-color: var(--Colors-Primary-Default);
+  color: var(--Colors-Primary-Default);
+}
+
+.ca-canvas-empty-hint {
+  max-width: 280px;
+  color: var(--Colors-Text-Body-Lighter);
+  text-align: center;
+}
+
+/* ── node panel ──────────────────────────────────────────────────────── */
+
+.ca-nodes-panel {
+  flex: 0 0 auto;
+  width: 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--Colors-Border-Subtle);
+  background: var(--Colors-Surface-Container-Base);
+}
+
+.ca-nodes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--UI-Spacing-spacing-s);
+  padding: var(--UI-Spacing-spacing-mxs) var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-xs) var(--UI-Spacing-spacing-ms);
+}
+
+.ca-nodes-title { margin: 0; color: var(--Colors-Text-Body-Strong); }
+
+.ca-nodes-connect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--UI-Spacing-spacing-s);
+  margin: 0 var(--UI-Spacing-spacing-ms) var(--UI-Spacing-spacing-xs);
+  padding: var(--UI-Spacing-spacing-xs) var(--UI-Spacing-spacing-s);
+  border-radius: var(--UI-Radius-radius-xs);
+  background: var(--Colors-Emphasis-Primary-Subtle);
+  color: var(--Colors-Text-Body-Primary-Strong);
+}
+
+.ca-nodes-connect strong { font-weight: 600; }
+
+.ca-nodes-search {
+  padding: 0 var(--UI-Spacing-spacing-ms) var(--UI-Spacing-spacing-s);
+}
+
+.ca-nodes-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-s);
+}
+
+.ca-nodes-section + .ca-nodes-section { margin-top: var(--UI-Spacing-spacing-xxs); }
+
+.ca-nodes-group-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  background: var(--Colors-Surface-Container-Base);
+}
+
+.ca-nodes-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-xs);
+  width: 100%;
+  padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-xxs);
+  border: none;
+  background: none;
+  color: var(--Colors-Text-Body-Lighter);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ca-nodes-group-toggle:disabled { cursor: default; }
+.ca-nodes-group-toggle:hover:not(:disabled) { color: var(--Colors-Text-Body-Medium); }
+.ca-nodes-group-label { flex: 0 1 auto; }
+
+.ca-nodes-group-count {
+  color: var(--Colors-Text-Body-Lighter);
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-nodes-chevron { margin-left: auto; display: inline-flex; }
+.ca-nodes-group-toggle:disabled .ca-nodes-chevron { visibility: hidden; }
+
+.ca-nodes-item {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-mxs);
+  width: 100%;
+  height: 52px;
+  padding: 0 var(--UI-Spacing-spacing-s);
+  border: 1px solid transparent;
+  border-radius: var(--UI-Radius-radius-s);
+  background: none;
+  text-align: left;
+  cursor: grab;
+}
+
+.ca-nodes-item:hover,
+.ca-nodes-item:focus-visible {
+  background: var(--Colors-Surface-App-Subtle);
+  border-color: var(--Colors-Border-Subtle);
+}
+
+.ca-nodes-item:active { cursor: grabbing; }
+
+.ca-nodes-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-min);
+}
+
+.ca-nodes-item-label,
+.ca-nodes-item-desc {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-nodes-item-label { color: var(--Colors-Text-Body-Strong); font-weight: 500; line-height: 1.2; }
+.ca-nodes-item-desc { color: var(--Colors-Text-Body-Lighter); line-height: 1.3; }
+
+/* The affordance only appears on hover/focus, so a long list stays quiet. */
+.ca-nodes-item-add {
+  display: inline-flex;
+  flex: 0 0 auto;
+  opacity: 0;
+  color: var(--Colors-Icon-Primary);
+}
+
+.ca-nodes-item:hover .ca-nodes-item-add,
+.ca-nodes-item:focus-visible .ca-nodes-item-add { opacity: 1; }
+
+.ca-nodes-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--UI-Spacing-spacing-xs);
+  padding: var(--UI-Spacing-spacing-mxs) var(--UI-Spacing-spacing-s);
+  color: var(--Colors-Text-Body-Light);
+}
+
+.ca-nodes-foot {
+  flex: 0 0 auto;
+  padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-ms);
+  border-top: 1px solid var(--Colors-Border-Subtle);
+  color: var(--Colors-Text-Body-Lighter);
+}
+
+@media (max-width: 900px) {
+  .ca-nodes-panel { width: 248px; }
+}
+
+/* ── context menu ────────────────────────────────────────────────────── */
+
+.ca-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 220px;
+  max-width: 280px;
+  padding: var(--UI-Spacing-spacing-xxs);
+  border: 1px solid var(--Colors-Border-Soft);
+  border-radius: var(--UI-Radius-radius-s);
+  background: var(--Colors-Surface-Container-Highest);
+  box-shadow: 0 8px 24px var(--Colors-Emphasis-Shadow-Medium);
+}
+
+.ca-menu-title {
+  padding: var(--UI-Spacing-spacing-xs) var(--UI-Spacing-spacing-s);
+  color: var(--Colors-Text-Body-Lighter);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+  width: 100%;
+  min-height: var(--UI-Input-xs);
+  padding: var(--UI-Spacing-spacing-xxs) var(--UI-Spacing-spacing-s);
+  border: none;
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: none;
+  color: var(--Colors-Text-Body-Default);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ca-menu-item:hover:not(:disabled),
+.ca-menu-item:focus-visible:not(:disabled) {
+  background: var(--Colors-Control-Neutral-Soft);
+  outline: none;
+}
+
+.ca-menu-item:disabled { color: var(--Colors-Text-Body-Lighter); cursor: default; }
+
+.ca-menu-item-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-menu-hint,
+.ca-menu-chevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--Colors-Text-Body-Lighter);
+}
+
+/* Destructive actions are marked by position and wording too, not colour alone. */
+.ca-menu-item-danger { color: var(--Colors-Alert-Error-Default); }
+
+.ca-menu-item-danger:hover:not(:disabled),
+.ca-menu-item-danger:focus-visible:not(:disabled) {
+  background: var(--Colors-Alert-Error-Lighter);
+  color: var(--Colors-Alert-Error-Dark);
+}
+
+.ca-menu-sep {
+  margin-top: var(--UI-Spacing-spacing-xxs);
+  border-top: 1px solid var(--Colors-Border-Subtle);
+  border-radius: 0 0 var(--UI-Radius-radius-xxs) var(--UI-Radius-radius-xxs);
+  padding-top: var(--UI-Spacing-spacing-xs);
+}
+
+.ca-menu-submenu {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: var(--UI-Spacing-spacing-min) 0 var(--UI-Spacing-spacing-xxs);
+  padding-left: var(--UI-Spacing-spacing-s);
+  border-left: 1px solid var(--Colors-Border-Subtle);
+}
+
+.ca-menu-subitem { padding-left: var(--UI-Spacing-spacing-xs); }

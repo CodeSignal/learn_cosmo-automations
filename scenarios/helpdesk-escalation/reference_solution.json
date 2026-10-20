@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "When clicking Execute",
+      "type": "manualTrigger",
+      "position": [
+        -260,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n2",
+      "name": "List Open Tickets",
+      "type": "zendesk",
+      "position": [
+        -30,
+        0
+      ],
+      "credentialId": "cred_zendesk",
+      "parameters": {
+        "operation": "listTickets",
+        "status": "open",
+        "ticketId": "",
+        "comment": ""
+      }
+    },
+    {
+      "id": "n3",
+      "name": "Urgent Only",
+      "type": "filter",
+      "position": [
+        200,
+        0
+      ],
+      "parameters": {
+        "combinator": "and",
+        "conditions": [
+          {
+            "left": "={{ $json.priority }}",
+            "op": "equals",
+            "right": "urgent"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Escalate",
+      "type": "zendesk",
+      "position": [
+        430,
+        -90
+      ],
+      "credentialId": "cred_zendesk",
+      "parameters": {
+        "operation": "addComment",
+        "status": "open",
+        "ticketId": "={{ $json.id }}",
+        "comment": "Escalated to the on-call engineer."
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Count Escalations",
+      "type": "aggregate",
+      "position": [
+        430,
+        110
+      ],
+      "parameters": {
+        "mode": "summarize",
+        "outputs": [
+          {
+            "as": "count",
+            "op": "count"
+          }
+        ],
+        "field": "data"
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Tell Support",
+      "type": "slack",
+      "position": [
+        660,
+        110
+      ],
+      "credentialId": "cred_slack",
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "#support-escalations",
+        "text": "={{ $json.count }} urgent tickets escalated"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "n1",
+      "fromOutput": 0,
+      "to": "n2",
+      "toInput": 0
+    },
+    {
+      "from": "n2",
+      "fromOutput": 0,
+      "to": "n3",
+      "toInput": 0
+    },
+    {
+      "from": "n3",
+      "fromOutput": 0,
+      "to": "n4",
+      "toInput": 0
+    },
+    {
+      "from": "n3",
+      "fromOutput": 0,
+      "to": "n5",
+      "toInput": 0
+    },
+    {
+      "from": "n5",
+      "fromOutput": 0,
+      "to": "n6",
+      "toInput": 0
+    }
+  ],
+  "credentials": [
+    {
+      "id": "cred_slack",
+      "name": "Support Slack",
+      "type": "slackApi",
+      "fields": {
+        "token": "xoxb-FAKE-000000-000000"
+      }
+    },
+    {
+      "id": "cred_zendesk",
+      "name": "Helpdesk (Zendesk)",
+      "type": "zendeskApi",
+      "fields": {
+        "token": "zd_FAKE_000000"
+      }
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "type": "gmail",
+  "label": "Gmail",
+  "group": "integration",
+  "icon": "mail",
+  "description": "Sends an email, or reads messages from a mailbox.",
+  "credential": true,
+  "credentialType": "gmailOAuth2",
+  "latency": {
+    "base": 300,
+    "perItem": 110
+  },
+  "operations": {
+    "send": {
+      "mode": "runOncePerItem",
+      "request": {
+        "method": "POST",
+        "url": "https://gmail.test/v1/messages/send",
+        "body": {
+          "to": "{to}",
+          "subject": "{subject}",
+          "message": "{message}"
+        }
+      },
+      "sink": true,
+      "emit": {
+        "from": "sent",
+        "merge": {
+          "ok": true
+        },
+        "mergeFromResponse": {
+          "id": "id"
+        }
+      }
+    },
+    "getAll": {
+      "mode": "runOnceForAllItems",
+      "request": {
+        "method": "GET",
+        "url": "https://gmail.test/v1/messages",
+        "query": {
+          "limit": "{limit}"
+        }
+      }
+    }
+  },
+  "params": [
+    {
+      "name": "to",
+      "label": "To",
+      "type": "string",
+      "placeholder": "someone@example.test",
+      "showFor": {
+        "operation": "send"
+      }
+    },
+    {
+      "name": "subject",
+      "label": "Subject",
+      "type": "string",
+      "showFor": {
+        "operation": "send"
+      }
+    },
+    {
+      "name": "message",
+      "label": "Message",
+      "type": "string",
+      "multiline": true,
+      "showFor": {
+        "operation": "send"
+      }
+    },
+    {
+      "name": "limit",
+      "label": "Limit",
+      "type": "number",
+      "default": 10,
+      "showFor": {
+        "operation": "getAll"
+      },
+      "hint": "How many messages to fetch, newest first."
+    }
+  ],
+  "docs": {
+    "summary": "Sends an email, or reads messages out of a mailbox.",
+    "mode": "Sending runs once per item \u2014 one item in, one email out. Reading runs once and returns one item per message.",
+    "when": "Use it when a person needs to be told something, and Slack is not where they are. Reading is for workflows that start from what is in an inbox.",
+    "params": [
+      {
+        "name": "operation",
+        "text": "`send` sends one email per item. `getAll` fetches messages and returns one item each."
+      },
+      {
+        "name": "to",
+        "text": "The recipient. Usually an expression, so each item can email a different person."
+      },
+      {
+        "name": "subject",
+        "text": "The subject line. Plain text or an expression."
+      },
+      {
+        "name": "message",
+        "text": "The body. Plain text or an expression."
+      }
+    ],
+    "examples": [
+      {
+        "label": "One email per item, addressed from the item",
+        "code": "to:      ={{ $json.email }}\nsubject: Your order {{ $json.id }} shipped\nmessage: Hi {{ $json.customer }} \u2014 it is on its way."
+      },
+      {
+        "label": "One summary email instead of forty",
+        "code": "// Aggregate first, then:\nto:      ops@example.test\nsubject: {{ $json.count }} orders need review"
+      }
+    ],
+    "gotchas": [
+      "Sending runs once per item. Forty items means forty emails \u2014 aggregate first if you meant one.",
+      "A missing credential is a 401, not a silent no-send. Read the status in the run log."
+    ],
+    "seeAlso": [
+      "slack",
+      "aggregate",
+      "httpRequest"
+    ]
+  }
+}
