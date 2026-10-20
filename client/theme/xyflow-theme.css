@@ -128,7 +128,8 @@
 .ca-edge-label.is-dimmed { opacity: 0.3; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ca-edge-label { transition: none; }
+  .ca-edge-label,
+  .react-flow__controls { transition: none; }
 }
 
 .react-flow__edge:hover .react-flow__edge-path { stroke: var(--Colors-Border-Highlight-Strong); }
@@ -220,6 +221,7 @@
 /* ── controls ────────────────────────────────────────────────────────── */
 
 .react-flow__controls {
+  transition: transform 0.15s ease;
   box-shadow: 0 2px 8px var(--Colors-Emphasis-Shadow-Subtle);
   border: 1px solid var(--Colors-Border-Soft);
   border-radius: var(--UI-Radius-radius-s);

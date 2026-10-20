@@ -381,6 +381,27 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The "+" is a React Flow handle wrapping the button, so pressing on it and
+ * dragging pulls a connection. Strip the handle's own placement and look: it
+ * sits in the row like any other piece of it.
+ */
+.react-flow__handle.ca-node-stub-handle {
+  position: relative;
+  inset: auto;
+  transform: none;
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
 .ca-node-stub-add {
   display: inline-flex;
   align-items: center;
@@ -460,9 +481,14 @@
 /* ── node panel ──────────────────────────────────────────────────────── */
 
 .ca-nodes-panel {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 12;
   width: 300px;
   min-width: 0;
+  box-shadow: 4px 0 16px var(--Colors-Emphasis-Shadow-Soft);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -665,8 +691,7 @@
   white-space: nowrap;
 }
 
-.ca-menu-hint,
-.ca-menu-chevron {
+.ca-menu-hint {
   flex: 0 0 auto;
   display: inline-flex;
   color: var(--Colors-Text-Body-Lighter);
@@ -688,13 +713,3 @@
   padding-top: var(--UI-Spacing-spacing-xs);
 }
 
-.ca-menu-submenu {
-  max-height: 260px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  margin: var(--UI-Spacing-spacing-min) 0 var(--UI-Spacing-spacing-xxs);
-  padding-left: var(--UI-Spacing-spacing-s);
-  border-left: 1px solid var(--Colors-Border-Subtle);
-}
-
-.ca-menu-subitem { padding-left: var(--UI-Spacing-spacing-xs); }

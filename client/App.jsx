@@ -44,6 +44,9 @@ export function App() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [connectFrom, setConnectFrom] = useState(null);
   const [panelFocus, setPanelFocus] = useState(0);
+  // Where the next node from the panel goes, when the panel was opened by
+  // right-clicking the canvas: there, rather than after the rightmost node.
+  const [addAt, setAddAt] = useState(null);
   // Bumped when the whole document is replaced, so the canvas re-frames it.
   const [fitToken, setFitToken] = useState(0);
   const [error, setError] = useState(null);
@@ -142,23 +145,34 @@ export function App() {
     const current = graphRef.current;
     const source = connectFrom && current.nodes.find((n) => n.id === connectFrom.id);
     if (!source) {
-      handleAddNode(entry);
+      handleAddNode(entry, addAt || undefined);
+      setAddAt(null);
       return;
     }
-    const { graph: withNode, node } = addNode(current, entry, besideOutput(source, connectFrom));
+    const { graph: withNode, node } = addNode(
+      current,
+      entry,
+      connectFrom.position || besideOutput(source, connectFrom),
+    );
     const next = entry.inputs === 0
       ? withNode
       : addConnection(withNode, { from: source.id, fromOutput: connectFrom.port, to: node.id, toInput: 0 });
     commit(next);
     setSelectedIds([node.id]);
     setConnectFrom(null);
-  }, [connectFrom, commit, handleAddNode]);
+  }, [connectFrom, addAt, commit, handleAddNode]);
 
-  /** A node's "+" stub: open the panel ready to add the next step after it. */
-  const handleAddAfter = useCallback((nodeId, port) => {
+  /**
+   * Open the panel ready to add the next step after a node's output: from its
+   * "+" stub (placed beside the output), or from a wire dragged out of it and
+   * dropped on empty canvas (placed at `position`, where it was dropped).
+   */
+  const handleAddAfter = useCallback((nodeId, port, position = null) => {
     const node = graphRef.current.nodes.find((n) => n.id === nodeId);
     if (!node) return;
     const definition = definitionsRef.current[node.type];
+    // A tool's output only connects to an agent's Tools port, never to a new node.
+    if (definition && definition.toolOutput) return;
     const outputs = definition ? effectiveOutputs(definition, node) : [];
     setConnectFrom({
       id: node.id,
@@ -166,13 +180,17 @@ export function App() {
       port,
       portCount: outputs.length,
       portName: outputs.length > 1 ? outputs[port]?.name : null,
+      position,
     });
+    setAddAt(null);
     setPanelOpen(true);
     setPanelFocus((n) => n + 1);
   }, []);
 
-  const requestAdd = useCallback(() => {
+  /** Open the panel to add a node — at `position` if one is given. */
+  const requestAdd = useCallback((position = null) => {
     setConnectFrom(null);
+    setAddAt(position);
     setPanelOpen(true);
     setPanelFocus((n) => n + 1);
   }, []);
@@ -469,21 +487,26 @@ export function App() {
       />
 
       <div className="ca-workspace">
-        <NodePanel
-          palette={palette}
-          open={panelOpen}
-          onOpen={() => setPanelOpen(true)}
-          onClose={() => { setPanelOpen(false); setConnectFrom(null); }}
-          onAdd={handlePanelAdd}
-          connectFrom={connectFrom
-            ? { name: connectFrom.name, port: connectFrom.portName }
-            : null}
-          onCancelConnect={() => setConnectFrom(null)}
-          focusToken={panelFocus}
-        />
-
         <main className="ca-stage">
           <div className="ca-canvas-area">
+            {/*
+              The node panel floats over the canvas rather than squeezing it,
+              so opening it never shifts the graph — a node dropped or
+              right-clicked into place stays where you put it.
+            */}
+            <NodePanel
+              palette={palette}
+              open={panelOpen}
+              onOpen={() => setPanelOpen(true)}
+              onClose={() => { setPanelOpen(false); setConnectFrom(null); setAddAt(null); }}
+              onAdd={handlePanelAdd}
+              connectFrom={connectFrom
+                ? { name: connectFrom.name, port: connectFrom.portName }
+                : null}
+              onCancelConnect={() => setConnectFrom(null)}
+              focusToken={panelFocus}
+            />
+
             <Canvas
               graph={graph}
               palette={palette}
@@ -504,6 +527,7 @@ export function App() {
               onAddAfter={handleAddAfter}
               onRequestAdd={requestAdd}
               fitToken={fitToken}
+              panelOpen={panelOpen}
             />
 
             {panelOpen ? null : (
@@ -512,7 +536,7 @@ export function App() {
                   variant="secondary"
                   size="xsmall"
                   className="ca-canvas-tool"
-                  onClick={requestAdd}
+                  onClick={() => requestAdd()}
                   title="Open the node panel (/)"
                 >
                   <Icon name="plus" size={14} />

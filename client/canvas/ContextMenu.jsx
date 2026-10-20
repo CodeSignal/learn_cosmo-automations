@@ -1,18 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { NodeGlyph } from './NodeIcon.jsx';
-import { Icon } from '../ui/Icon.jsx';
 
 /**
  * Canvas context menu.
  *
- * Items are `{ label, hint, onSelect, danger, disabled, separatorBefore }`, or
- * `{ label, submenu: [...] }` for the "Add node" tree. Closes on Escape, on
+ * Items are `{ label, hint, onSelect, danger, disabled, separatorBefore }`.
+ * Adding a node is not a submenu: "Add node…" opens the node panel, the one
+ * place nodes are browsed and searched. Closes on Escape, on
  * outside click, and on selecting anything; arrow keys move, Enter activates.
  */
 export function ContextMenu({ menu, onClose }) {
   const ref = useRef(null);
   const [position, setPosition] = useState({ x: menu.x, y: menu.y });
-  const [openSubmenu, setOpenSubmenu] = useState(null);
 
   // Flip the menu back inside the viewport rather than letting it clip.
   useLayoutEffect(() => {
@@ -73,43 +71,6 @@ export function ContextMenu({ menu, onClose }) {
       {menu.title ? <div className="ca-menu-title body-xxsmall">{menu.title}</div> : null}
 
       {menu.items.map((item, index) => {
-        if (item.submenu) {
-          const open = openSubmenu === index;
-          return (
-            <div key={item.label} className="ca-menu-group">
-              <button
-                type="button"
-                role="menuitem"
-                aria-expanded={open}
-                className={`ca-menu-item body-xsmall${item.separatorBefore ? ' ca-menu-sep' : ''}`}
-                onClick={() => setOpenSubmenu(open ? null : index)}
-              >
-                <span className="ca-menu-item-label">{item.label}</span>
-                <span className="ca-menu-chevron" aria-hidden="true">
-                  <Icon name={open ? 'chevron-down' : 'chevron-right'} size={14} />
-                </span>
-              </button>
-
-              {open ? (
-                <div className="ca-menu-submenu" role="group">
-                  {item.submenu.map((entry) => (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      key={entry.type}
-                      className="ca-menu-item ca-menu-subitem body-xsmall"
-                      onClick={() => { entry.onSelect(); onClose(); }}
-                    >
-                      <NodeGlyph group={entry.group} icon={entry.icon} size="sm" />
-                      <span className="ca-menu-item-label">{entry.label}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          );
-        }
-
         return (
           <button
             type="button"

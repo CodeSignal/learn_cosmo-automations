@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import {
   ReactFlow, Background, BackgroundVariant, Controls,
   ReactFlowProvider, useReactFlow, applyNodeChanges, applyEdgeChanges,
@@ -39,13 +41,29 @@ function CanvasInner({
   graph, palette, trace, liveStatus, selectedIds, running,
   onAddNode, onMoveNodes, onConnect, onDisconnect,
   onSelectionChange, onOpenNode, onDeleteNodes, onDuplicateNodes, onSetDisabled,
-  onExecuteNode, onAddAfter, onRequestAdd, fitToken,
+  onExecuteNode, onAddAfter, onRequestAdd, fitToken, panelOpen,
 }) {
   const wrapperRef = useRef(null);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const [menu, setMenu] = useState(null);
 
   const [rfNodes, setRfNodes] = useState([]);
+
+  /**
+   * The node panel floats over the canvas's left edge. While it is open, the
+   * zoom controls move out from under it and "fit view" frames the graph in
+   * the visible area to its right — the panel itself never moves the graph.
+   */
+  const [panelInset, setPanelInset] = useState(0);
+  useLayoutEffect(() => {
+    const panel = panelOpen
+      ? wrapperRef.current?.parentElement?.querySelector('.ca-nodes-panel')
+      : null;
+    setPanelInset(panel ? panel.offsetWidth : 0);
+  }, [panelOpen]);
+  const fitOptions = useMemo(() => (panelInset
+    ? { ...FIT_VIEW, padding: { top: 0.16, bottom: 0.16, right: 0.16, left: `${panelInset + 48}px` } }
+    : FIT_VIEW), [panelInset]);
 
   /**
    * What the pointer is over, so its connections can be picked out of a busy
@@ -194,8 +212,10 @@ function CanvasInner({
    */
   useEffect(() => {
     if (!fitToken) return undefined;
-    const timer = setTimeout(() => fitView({ ...FIT_VIEW, duration: 200 }), 60);
+    const timer = setTimeout(() => fitView({ ...fitOptions, duration: 200 }), 60);
     return () => clearTimeout(timer);
+    // Only a document swap re-frames; opening the panel must not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitToken, fitView]);
 
   /**
@@ -239,6 +259,32 @@ function CanvasInner({
     const moves = (draggedNodes || []).map((n) => ({ id: n.id, position: n.position }));
     if (moves.length) onMoveNodes(moves);
   }, [onMoveNodes]);
+
+  /**
+   * A connection dragged out of an output and dropped on empty canvas asks
+   * for a new node there: the node panel opens, and whatever is picked lands
+   * where the wire was dropped, already connected. A drag that barely moved is
+   * a click on the "+", which the button itself handles.
+   */
+  const connectStart = useRef(null);
+  const handleConnectStart = useCallback((event) => {
+    const point = 'touches' in event ? event.touches[0] : event;
+    connectStart.current = point ? { x: point.clientX, y: point.clientY } : null;
+  }, []);
+
+  const handleConnectEnd = useCallback((event, state) => {
+    const start = connectStart.current;
+    connectStart.current = null;
+    if (!state || state.isValid || !state.fromNode || !state.fromHandle) return;
+    if (state.fromHandle.type !== 'source') return;
+    if (!event.target?.classList?.contains('react-flow__pane')) return;
+    const point = 'changedTouches' in event ? event.changedTouches[0] : event;
+    if (start && Math.hypot(point.clientX - start.x, point.clientY - start.y) < 8) return;
+    const at = screenToFlowPosition({ x: point.clientX, y: point.clientY });
+    onAddAfter(state.fromNode.id, portIndex(state.fromHandle.id), {
+      x: at.x - DROP_OFFSET.x, y: at.y - DROP_OFFSET.y,
+    });
+  }, [screenToFlowPosition, onAddAfter]);
 
   const handleConnect = useCallback((params) => {
     onConnect({
@@ -286,14 +332,6 @@ function CanvasInner({
 
   /* ── context menus ─────────────────────────────────────────────────── */
 
-  const addNodeSubmenu = useCallback((flowPosition) => palette.map((entry) => ({
-    type: entry.type,
-    label: entry.label,
-    icon: entry.icon,
-    group: entry.group,
-    onSelect: () => onAddNode(entry, flowPosition),
-  })), [palette, onAddNode]);
-
   const openPaneMenu = useCallback((event) => {
     event.preventDefault();
     const flowPosition = screenToFlowPosition({ x: event.clientX, y: event.clientY });
@@ -301,10 +339,15 @@ function CanvasInner({
       x: event.clientX,
       y: event.clientY,
       items: [
-        { label: 'Add node', submenu: addNodeSubmenu({ x: flowPosition.x - DROP_OFFSET.x, y: flowPosition.y - DROP_OFFSET.y }) },
+        // Opens the node panel; the node picked lands where you right-clicked.
+        {
+          label: 'Add node…',
+          hint: '/',
+          onSelect: () => onRequestAdd({ x: flowPosition.x - DROP_OFFSET.x, y: flowPosition.y - DROP_OFFSET.y }),
+        },
         {
           label: 'Fit view', separatorBefore: true,
-          onSelect: () => fitView(FIT_VIEW),
+          onSelect: () => fitView(fitOptions),
         },
         {
           label: 'Select all nodes',
@@ -313,7 +356,7 @@ function CanvasInner({
         },
       ],
     });
-  }, [screenToFlowPosition, addNodeSubmenu, fitView, graph.nodes, onSelectionChange]);
+  }, [screenToFlowPosition, onRequestAdd, fitView, fitOptions, graph.nodes, onSelectionChange]);
 
   const openNodeMenu = useCallback((event, rfNode) => {
     event.preventDefault();
@@ -378,6 +421,10 @@ function CanvasInner({
         onEdgesChange={handleEdgesChange}
         onNodeDragStop={handleDragStop}
         onConnect={handleConnect}
+        onConnectStart={handleConnectStart}
+        onConnectEnd={handleConnectEnd}
+        // A click on a handle is the "+" button's job, not a click-to-connect.
+        connectOnClick={false}
         onNodeDoubleClick={(_, node) => onOpenNode(node.id)}
         onNodeContextMenu={openNodeMenu}
         onNodeMouseEnter={(_, node) => setHovered({ kind: 'node', id: node.id })}
@@ -407,12 +454,17 @@ function CanvasInner({
         fitViewOptions={FIT_VIEW}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} />
-        <Controls showInteractive={false} position="bottom-left" fitViewOptions={FIT_VIEW} />
+        <Controls
+          showInteractive={false}
+          position="bottom-left"
+          fitViewOptions={fitOptions}
+          style={{ transform: `translateX(${panelInset}px)` }}
+        />
       </ReactFlow>
 
       {graph.nodes.length === 0 ? (
         <div className="ca-canvas-empty">
-          <button type="button" className="ca-canvas-empty-add" onClick={onRequestAdd}>
+          <button type="button" className="ca-canvas-empty-add" onClick={() => onRequestAdd()}>
             <span className="ca-canvas-empty-plus" aria-hidden="true"><Icon name="plus" size={28} /></span>
             <span className="body-small">Add first step</span>
           </button>
@@ -433,8 +485,9 @@ const EMPTY_SET = new Set();
 // port rows and "+" stubs to the right.
 const FIT_VIEW = { padding: 0.16, maxZoom: 1 };
 
+/** `out-2`, `in-1` and the "+" handle `out-2-plus` all name their port number. */
 function portIndex(handleId) {
-  const match = /-(\d+)$/.exec(handleId || '');
+  const match = /^(?:in|out)-(\d+)/.exec(handleId || '');
   return match ? Number(match[1]) : 0;
 }
 

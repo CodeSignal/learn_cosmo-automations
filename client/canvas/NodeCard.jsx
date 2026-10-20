@@ -193,15 +193,27 @@ export const NodeCard = memo(({ data, selected }) => {
                         <span className="ca-node-stub-line ca-node-stub-line-short" aria-hidden="true" />
                       </>
                     ) : null}
-                    <button
-                      type="button"
-                      className="ca-node-stub-add"
-                      onClick={(event) => { event.stopPropagation(); onAddAfter(index); }}
-                      aria-label={`Add a node after ${node.name}${outputs.length > 1 ? ` (${out.name})` : ''}`}
-                      title="Add the next step"
+                    {/*
+                      The "+" is also a handle for this output: drag from it to
+                      pull a connection to another node (or onto empty canvas,
+                      to add one there), click it to pick the next node.
+                    */}
+                    <Handle
+                      type="source"
+                      position={Position.Right}
+                      id={`out-${index}-plus`}
+                      className="ca-node-stub-handle"
                     >
-                      <Icon name="plus" size={12} />
-                    </button>
+                      <button
+                        type="button"
+                        className="ca-node-stub-add"
+                        onClick={(event) => { event.stopPropagation(); onAddAfter(index); }}
+                        aria-label={`Add a node after ${node.name}${outputs.length > 1 ? ` (${out.name})` : ''}`}
+                        title="Click to add the next step, or drag to connect"
+                      >
+                        <Icon name="plus" size={12} />
+                      </button>
+                    </Handle>
                   </>
                 ) : null}
               </div>

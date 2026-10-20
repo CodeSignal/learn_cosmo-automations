@@ -314,11 +314,18 @@ export const CONCEPTS = [
         <p className="body-small">
           Open the node panel with <strong>+ Add node</strong> at the top left of
           the canvas (or press <code>/</code>), then click a node, or drag it onto
-          the canvas. The quickest way to build is the <strong>+</strong> at the
-          end of a node&apos;s output: it adds the next node already connected.
-          To connect two nodes yourself, drag from a node&apos;s right-hand dot to
-          another node&apos;s left-hand bar. Double-click a node to open its
-          settings; hover it for quick actions.
+          the canvas. Right-clicking the canvas and choosing{' '}
+          <strong>Add node…</strong> opens the same panel, and the node you pick
+          lands where you clicked.
+        </p>
+        <p className="body-small">
+          The quickest way to build is the <strong>+</strong> at the end of a
+          node&apos;s output. Click it to pick the next node, already connected.
+          Drag from it to wire that output to another node&apos;s input — or drop
+          the wire on empty canvas to pick a new node right there. You can also
+          drag from a node&apos;s right-hand dot to another node&apos;s left-hand
+          bar. Double-click a node to open its settings; hover it for quick
+          actions.
         </p>
         <p className="body-small">
           <strong>Execute Workflow</strong> sits at the bottom of the canvas, and
