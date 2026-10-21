@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, IconButton, Tabs } from '../ui/primitives.jsx';
 import { Icon, Spinner } from '../ui/Icon.jsx';
 import { NodeGlyph } from '../canvas/NodeIcon.jsx';
@@ -28,6 +28,20 @@ export function NodeDetail({
 }) {
   const paramsHostRef = useRef(null);
   const [tab, setTab] = useState('parameters');
+
+  /**
+   * The name field keeps its own text. Every keystroke still renames the node
+   * (trimmed, so expressions referring to it follow along), but the field must
+   * not be redrawn from the committed name: that dropped a trailing space as it
+   * was typed, and refused an empty or momentarily duplicate name, so names with
+   * spaces could not be typed at all. On blur it falls back to the name in use.
+   */
+  const [draftName, setDraftName] = useState(node.name);
+  useEffect(() => {
+    if (node.name !== draftName.trim()) setDraftName(node.name);
+    // Only an outside change (undo, redo) should overwrite what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.name]);
 
   const inputItems = record ? (record.inputSample || []) : [];
   const outputItems = record ? (record.output || []) : [];
@@ -81,8 +95,9 @@ export function NodeDetail({
         <div className="ca-detail-titles">
           <input
             className="ca-detail-name"
-            value={node.name}
-            onChange={(e) => onRename(e.target.value)}
+            value={draftName}
+            onChange={(e) => { setDraftName(e.target.value); onRename(e.target.value); }}
+            onBlur={() => setDraftName(node.name)}
             aria-label="Node name"
             title="Rename this node"
             spellCheck={false}
