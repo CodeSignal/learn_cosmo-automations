@@ -155,6 +155,65 @@ test('answering an approval carries on from it, and the run is still a faithful 
   assert.strictEqual(comparable(resumed), comparable(fresh));
 });
 
+/* ── reusing the last run ──────────────────────────────────────────────── */
+
+const clone = (v) => JSON.parse(JSON.stringify(v));
+/** Ids of the nodes that actually ran, in order. */
+const ranIds = (trace) => trace.nodes.filter((n) => !n.reused && n.status !== 'notRun').map((n) => n.id);
+
+test('after a full run, Execute Node runs only that node, on its parents\' last output', async () => {
+  const cache = new Map();
+  await run(scenario, graph, { cache });
+  const trace = await run(scenario, graph, { untilNode: 'n4', cache });
+  assert.deepStrictEqual(ranIds(trace), ['n4']);
+  assert.ok(!trace.httpCalls.length, 'the fetch was not repeated');
+  const filter = trace.nodes.find((n) => n.id === 'n4');
+  assert.deepStrictEqual([filter.itemsIn, filter.itemsOut], [12, 3]);
+  assert.ok(trace.nodes.find((n) => n.id === 'n3').reused, 'the parent shows, from the last run');
+});
+
+test('Execute previous nodes runs only the node directly before, on cached output', async () => {
+  const cache = new Map();
+  await run(scenario, graph, { cache });
+  const trace = await run(scenario, graph, { untilNode: 'n5', inputOnly: true, cache });
+  assert.deepStrictEqual(ranIds(trace), ['n4']);
+  assert.strictEqual(trace.nodes.find((n) => n.id === 'n5').inputSample.length, 3);
+});
+
+test('a changed parent is run again instead of reused', async () => {
+  const cache = new Map();
+  await run(scenario, graph, { cache });
+  const edited = clone(graph);
+  edited.nodes.find((n) => n.id === 'n2').parameters.url += '&page=1';
+  const trace = await run(scenario, edited, { untilNode: 'n4', cache });
+  assert.deepStrictEqual(ranIds(trace), ['n2', 'n3', 'n4'], 'the fetch changed, so it and everything after it run');
+});
+
+test('with nothing cached yet, Execute Node runs what it needs', async () => {
+  const trace = await run(scenario, graph, { untilNode: 'n4', cache: new Map() });
+  assert.deepStrictEqual(ranIds(trace), ['n1', 'n2', 'n3', 'n4']);
+});
+
+test('a full run never reuses, so the graded trace is unaffected by the cache', async () => {
+  const cache = new Map();
+  await run(scenario, graph, { cache });
+  const again = await run(scenario, graph, { cache });
+  const plain = await run(scenario, graph);
+  const comparable = (t) => JSON.stringify(t, (k, v) => (['ms', 'durationMs', 'simulatedMs'].includes(k) ? undefined : v));
+  assert.strictEqual(comparable(again), comparable(plain));
+});
+
+test('nothing in or after a loop is reused', async () => {
+  const dir = path.join(__dirname, '..', 'scenarios', 'payment-recovery');
+  const pr = JSON.parse(fs.readFileSync(path.join(dir, 'scenario.json'), 'utf8'));
+  const ref = JSON.parse(fs.readFileSync(path.join(dir, 'reference_solution.json'), 'utf8'));
+  const cache = new Map();
+  await run(pr, ref, { cache });
+  assert.ok(!cache.has('n11') && !cache.has('n12'), 'the loop and its body are not cached');
+  const trace = await run(pr, ref, { untilNode: 'n12', cache });
+  assert.ok(ranIds(trace).includes('n11'), 'a node inside the loop still runs its loop');
+});
+
 /* ── simulated latency ─────────────────────────────────────────────────── */
 
 test('latency is off by default, so grading and tests stay fast', async () => {

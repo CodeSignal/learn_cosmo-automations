@@ -90,10 +90,16 @@ What the candidate *sees* is not a re-run. Answering an approval sends
 `resumeFrom`, and the nodes before the approval replay silently — no simulated
 latency, no progress events — so the run visibly carries on from the approval. A
 live model is not asked twice: identical calls are answered from the session's
-cache. Execute Node and Execute previous nodes work the same way: only that node,
-or only the nodes directly before it, are shown running, and what feeds them
-replays silently. The trace is unchanged by any of this, so grading still
-reproduces it exactly.
+cache. The trace is unchanged by this, so grading still reproduces it exactly.
+
+Execute Node and Execute previous nodes go further, because their runs are never
+graded: they **reuse** what the last run produced. The server keeps each node's
+output keyed by a fingerprint of everything it depends on (the scenario, the
+node's settings, credential and tools, and the fingerprints of what feeds it), so
+Execute Node runs just that node on its parents' last output, and Execute previous
+nodes just the nodes directly before it. A parent with no usable output — never
+run, or changed since — runs as well. Loops, and anything after one, are not
+cached and always run.
 
 ```jsonc
 // Answers approvals for HEADLESS runs — the solvability check, run.js, the tests.

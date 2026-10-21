@@ -33,6 +33,15 @@ const liveAgent = createLiveAgent({
   apiKey: process.env.OPENAI_API_KEY,
   baseUrl: process.env.OPENAI_BASE_URL,
 });
+
+/**
+ * Each node's last output, keyed by a fingerprint of everything it depends on,
+ * so Execute Node can run one node on what its parents already produced instead
+ * of running them all again. The engine decides what is still usable; this only
+ * holds it for the session. Reset clears it.
+ */
+const runCache = new Map();
+
 const {
   createActivityLog, diffGraphs, diffCredentials, CLIENT_EVENTS,
 } = require('./engine/activity');
@@ -382,6 +391,7 @@ async function handleApi(req, res, parsed) {
     const trace = await run(scenario, graph, {
       untilNode,
       inputOnly,
+      cache: runCache,
       // The approval just answered: what came before it replays without being shown.
       resumeFrom: typeof body.resumeFrom === 'string' ? body.resumeFrom : null,
       /**
@@ -457,6 +467,7 @@ async function handleApi(req, res, parsed) {
     const graph = scenario.initialWorkflow || { version: 1, nodes: [], connections: [] };
     fs.writeFileSync(SOLUTION_PATH, JSON.stringify(graph, null, 2));
     for (const f of [EXECUTION_PATH]) if (fs.existsSync(f)) fs.unlinkSync(f);
+    runCache.clear();
     activity.record('workflow.reset', {});
     return sendJson(res, 200, { graph });
   }

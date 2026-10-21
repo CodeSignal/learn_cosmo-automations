@@ -323,9 +323,9 @@ export function App() {
         // The prompt itself is shown in the run log, where the items are; a toast
         // on top of it would say the same thing twice.
       } else if (result.partial) {
-        const ran = (result.nodes || []).filter((r) => r.status !== 'notRun').length;
+        const ran = (result.nodes || []).filter((r) => r.status !== 'notRun' && !r.reused).length;
         showToast(result.inputOnly
-          ? `Ran the ${ran} node${ran === 1 ? '' : 's'} before this one. Execute the whole workflow before submitting.`
+          ? `Ran ${ran === 1 ? 'the node' : `the ${ran} nodes`} before this one. Execute the whole workflow before submitting.`
           : `Ran ${ran} node${ran === 1 ? '' : 's'}. Execute the whole workflow before submitting.`);
       }
     } catch (err) {

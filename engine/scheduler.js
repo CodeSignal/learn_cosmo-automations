@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { getNode } = require('./nodes');
 const { resolveParameters } = require('./expression');
 const { initSandbox } = require('./sandbox');
@@ -322,6 +323,89 @@ async function executeWorkflow(scenario, graph, options = {}) {
    */
   const credentials = credentialsFor(scenario, graph);
   const credTypes = credentialTypes(scenario);
+
+  /**
+   * Reusing what the last run produced, for Execute Node and Execute previous
+   * nodes.
+   *
+   * The caller (the server) keeps `options.cache`: node id -> { fp, outputs,
+   * record } from earlier runs. A node's fingerprint covers everything its output
+   * depends on — the scenario, its own settings and credential, its tools, and
+   * the fingerprints of whatever feeds it — so a cached output is reused only
+   * while none of that has changed. Execute Node then runs just that node on its
+   * parents' cached output, and Execute previous nodes just the nodes directly
+   * before it; a parent with no usable output still runs. Loops are never
+   * cached, and neither is anything after one, so those always run.
+   *
+   * Only partial runs reuse, and a partial run is never the graded run. Full
+   * runs and approval resumes run everything and only refresh the cache, so the
+   * trace grading reproduces is unaffected.
+   */
+  const cache = options.cache instanceof Map ? options.cache : null;
+  const fingerprintOf = new Map();
+  if (cache) {
+    const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+    const scenarioHash = sha(JSON.stringify(scenario));
+    const fpOf = (node) => {
+      if (fingerprintOf.has(node.id)) return fingerprintOf.get(node.id);
+      let fp = null;
+      const def = getNode(node.type, scenario);
+      if (def && !def.loop && !insideALoop.has(node.id)) {
+        const parts = [];
+        let ok = true;
+        for (const conn of acyclic) {
+          if (conn.to !== node.id || !byId.has(conn.from)) continue;
+          const upstream = fpOf(byId.get(conn.from));
+          if (!upstream) { ok = false; break; }
+          parts.push(JSON.stringify([upstream, conn.fromOutput || 0, conn.toInput || 0]));
+        }
+        for (const tool of (ok ? (toolsOf.get(node.id) || []) : [])) {
+          const toolFp = fpOf(tool);
+          if (!toolFp) { ok = false; break; }
+          parts.push(JSON.stringify(['tool', toolFp]));
+        }
+        if (ok) {
+          const { position, ...settings } = node;
+          const credential = node.credentialId ? credentials.get(node.credentialId) || null : null;
+          fp = sha(JSON.stringify([scenarioHash, settings, credential, parts.sort()]));
+        }
+      }
+      fingerprintOf.set(node.id, fp);
+      return fp;
+    };
+    for (const n of nodes) fpOf(n);
+  }
+  const cachedFor = (id) => {
+    if (!cache) return null;
+    const fp = fingerprintOf.get(id);
+    const hit = fp ? cache.get(id) : null;
+    return hit && hit.fp === fp ? hit : null;
+  };
+
+  /** Ids whose last output is used instead of running them. */
+  const reusedIds = new Set();
+  if (untilNode && cache && !insideALoop.has(untilNode)) {
+    const mustRun = new Set();
+    const visit = (id, force) => {
+      if (mustRun.has(id) || reusedIds.has(id)) return;
+      if (!force && cachedFor(id)) { reusedIds.add(id); return; }
+      mustRun.add(id);
+      for (const conn of acyclic) if (conn.to === id && byId.has(conn.from)) visit(conn.from, false);
+    };
+    if (inputOnly) {
+      mustRun.add(untilNode);
+      for (const conn of acyclic) if (conn.to === untilNode && byId.has(conn.from)) visit(conn.from, true);
+    } else {
+      visit(untilNode, true);
+    }
+    const touchesALoop = [...mustRun].some((id) => insideALoop.has(id)
+      || (getNode(byId.get(id).type, scenario) || {}).loop);
+    if (touchesALoop) {
+      reusedIds.clear();
+    } else {
+      runList = order.filter((n) => mustRun.has(n.id) && !isToolNode(n));
+    }
+  }
 
   /**
    * Run the tool calls a model made, replayed from its fixture's `calls`.
@@ -1080,9 +1164,48 @@ async function executeWorkflow(scenario, graph, options = {}) {
     emitEnd(record);
   };
 
+  /*
+   * Seed what is reused. The direct inputs of the nodes that run get their
+   * output, so those nodes read it as usual. Every node whose last output is
+   * still valid keeps its record from that run, so the canvas and the input
+   * panels go on showing it, and contributes its `$node["…"]` value, so
+   * expressions reaching past the nodes that run still resolve.
+   */
+  if (reusedIds.size) {
+    for (const n of order) {
+      const hit = cachedFor(n.id);
+      if (!hit || isToolNode(n) || runList.includes(n)) continue;
+      nodeOutputsByName[n.name] = hit.outputs[0] || [];
+      if (reusedIds.has(n.id)) outputsById.set(n.id, hit.outputs);
+      const record = { ...JSON.parse(JSON.stringify(hit.record)), reused: true };
+      recordById.set(n.id, record);
+      trace.nodes.push(record);
+    }
+  }
+
+  /** Keep a finished node's output for the next partial run. */
+  const remember = (node) => {
+    if (!cache) return;
+    const fp = fingerprintOf.get(node.id);
+    const record = recordById.get(node.id);
+    if (!fp || !record || !['success', 'disabled', 'noItems'].includes(record.status)) return;
+    cache.set(node.id, {
+      fp,
+      outputs: outputsById.get(node.id) || [],
+      record: JSON.parse(JSON.stringify({ ...record, reused: undefined })),
+    });
+  };
+
   for (const node of runList) {
     await runOneNode(node);
+    remember(node);
     if (outOfTime || paused) break;
+  }
+
+  // Reused records went in first; list them in workflow order with the rest.
+  if (reusedIds.size) {
+    const position = new Map(order.map((n, i) => [n.id, i]));
+    trace.nodes.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
   }
 
   /*
@@ -1114,7 +1237,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
   trace.finalPayloads = {};
   // A `notRun` record (an unused tool, or the target of Execute previous nodes)
   // produced nothing, so it does not stop the node before it being a leaf.
-  const executed = new Set(trace.nodes.filter((r) => r.status !== 'notRun').map((r) => r.id));
+  const executed = new Set(trace.nodes.filter((r) => r.status !== 'notRun' && !r.reused).map((r) => r.id));
   for (const node of nodes) {
     if (!executed.has(node.id)) continue;
     // A node counts as a leaf when nothing downstream of it actually ran, which

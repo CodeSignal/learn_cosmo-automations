@@ -173,7 +173,8 @@ function LogRow({ record, trace, definition, onOpen }) {
       </span>
 
       <span className="ca-log-time ca-mono body-xxsmall">
-        {typeof record.ms === 'number' ? formatMs(record.ms) : ''}
+        {/* Reused by Execute Node: its numbers are from the last run, not this one. */}
+        {record.reused ? 'last run' : (typeof record.ms === 'number' ? formatMs(record.ms) : '')}
       </span>
 
       <span className="ca-log-details">
