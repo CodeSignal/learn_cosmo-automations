@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { run } = require('../engine');
-const { lastRunInput } = require('../shared/last-run-input.mjs');
+const { lastRunInput, nodesBefore } = require('../shared/last-run-input.mjs');
 
 const DIR = path.join(__dirname, '..', 'scenarios', 'eu-orders');
 const scenario = JSON.parse(fs.readFileSync(path.join(DIR, 'scenario.json'), 'utf8'));
@@ -54,4 +54,25 @@ test('it says nothing when it cannot know', async () => {
   assert.strictEqual(lastRunInput(withNewNode(graph, 'n5'), trace, 'new'), null, 'the parent never ran');
   assert.strictEqual(lastRunInput(graph, trace, 'n1'), null, 'nothing is connected');
   assert.strictEqual(lastRunInput(graph, null, 'n2'), null, 'nothing has run');
+});
+
+test('the previous-nodes count is every node before when nothing has run', async () => {
+  const graph = read('reference_solution.json');
+  assert.strictEqual(nodesBefore(graph, null, 'n4'), 3); // trigger, fetch, split
+});
+
+test('it is one when everything but the node directly before has run', async () => {
+  const graph = read('reference_solution.json');
+  const trace = await run(scenario, graph, { untilNode: 'n2' }); // trigger and fetch ran
+  assert.strictEqual(nodesBefore(graph, trace, 'n4'), 1, 'only the Split Out before the Filter');
+  const full = await run(scenario, graph);
+  assert.strictEqual(nodesBefore(graph, full, 'n4'), 1, 'the node directly before always runs');
+});
+
+test('nodes that attach to a port are not counted', () => {
+  const graph = {
+    nodes: [{ id: 'a', type: 'manualTrigger' }, { id: 't', type: 'agentTool' }, { id: 'g', type: 'agent' }],
+    connections: [{ from: 'a', to: 'g', toInput: 0 }, { from: 't', to: 'g', toInput: 1 }],
+  };
+  assert.strictEqual(nodesBefore(graph, null, 'g', (type) => type === 'agentTool'), 1);
 });

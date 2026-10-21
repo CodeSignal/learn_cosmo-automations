@@ -32,3 +32,33 @@ export function lastRunInput(graph, trace, nodeId) {
   }
   return items.slice(0, 50);
 }
+
+/**
+ * How many nodes "Execute previous nodes" will run for this node, as far as the
+ * client can tell: the nodes directly before it, plus any node further up that
+ * has no result in the current run. Used to label the button in the singular
+ * when only the one node before it still has to run.
+ *
+ * `isSubNode(type)` says which node types attach to a port rather than feed
+ * data (tools, output parsers); those never run as steps and are not counted.
+ * An edited node can still have a result here, so the engine, which compares
+ * fingerprints, may run more than this says; it is a label, not a promise.
+ */
+export function nodesBefore(graph, trace, nodeId, isSubNode = () => false) {
+  const byId = new Map((graph.nodes || []).map((n) => [n.id, n]));
+  const ran = new Set(((trace && trace.nodes) || [])
+    .filter((r) => ['success', 'disabled', 'noItems'].includes(r.status))
+    .map((r) => r.id));
+  const feeding = (id) => (graph.connections || [])
+    .filter((c) => c.to === id && byId.has(c.from) && !isSubNode(byId.get(c.from).type))
+    .map((c) => c.from);
+
+  const toRun = new Set();
+  const visit = (id, force) => {
+    if (toRun.has(id) || (!force && ran.has(id))) return;
+    toRun.add(id);
+    for (const from of feeding(id)) visit(from, false);
+  };
+  for (const from of feeding(nodeId)) visit(from, true);
+  return toRun.size;
+}

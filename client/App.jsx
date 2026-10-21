@@ -20,7 +20,7 @@ import {
   setNodesDisabled, updateCredential, updateNode, wouldCycle,
 } from './lib/graph.js';
 import { effectiveOutputs } from '../shared/node-ports.mjs';
-import { lastRunInput } from '../shared/last-run-input.mjs';
+import { lastRunInput, nodesBefore } from '../shared/last-run-input.mjs';
 
 const EMPTY_GRAPH = { version: 1, nodes: [], connections: [], credentials: [] };
 
@@ -612,6 +612,9 @@ export function App() {
             onExecuteNode={() => handleExecute(openNode.id)}
             onExecutePrevious={() => handleExecute(openNode.id, null, { inputOnly: true })}
             inputFallback={openInputFallback}
+            previousCount={nodesBefore(graph, trace, openNode.id, (type) => Boolean(
+              definitions[type] && (definitions[type].toolOutput || definitions[type].parserOutput),
+            ))}
             canExecuteNode={!openDefinition.toolOutput && (openDefinition.inputs === 0
               || graph.connections.some((c) => c.to === openNode.id))}
             onOpenDocs={() => setHelpTopic(`node:${openNode.type}`)}

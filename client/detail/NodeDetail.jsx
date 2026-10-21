@@ -25,7 +25,7 @@ export function NodeDetail({
   node, definition, record, credentials, credentialTypes, trace,
   onClose, onRename, onParameterChange, onCredentialChange, onToggleDisabled,
   onExecuteNode, onExecutePrevious, canExecuteNode, onOpenDocs, onCreateCredential, running,
-  inputFallback,
+  inputFallback, previousCount = 0,
 }) {
   const paramsHostRef = useRef(null);
   const [tab, setTab] = useState('parameters');
@@ -268,11 +268,12 @@ export function NodeDetail({
           ? { title: 'No input', text: 'No items reached this node.' }
           : {
             title: 'No input data yet',
+            // Singular when only the node directly before still has to run.
             text: canExecuteNode
-              ? 'Execute the previous nodes to see the items that arrive here.'
+              ? `Execute the previous ${previousCount === 1 ? 'node' : 'nodes'} to see the items that arrive here.`
               : 'Connect this node to an earlier one first.',
             action: canExecuteNode && !running
-              ? { label: 'Execute previous nodes', onClick: onExecutePrevious }
+              ? { label: previousCount === 1 ? 'Execute previous node' : 'Execute previous nodes', onClick: onExecutePrevious }
               : null,
           })}
     />
