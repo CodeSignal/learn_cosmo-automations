@@ -282,8 +282,10 @@ export const NODE_DOCS = {
       + 'actually in the prompt.',
       'Once per item is one call per item. Forty tickets is forty calls — aggregate '
       + 'first if a single call over the whole list would answer the question.',
-      'Inside this simulation the answers are recorded fixtures, not a live model, '
-      + 'so a run is reproducible and costs nothing. What is being judged is your '
+      'When the task offers live answers, a real model answers while you build, and '
+      + 'the Logs panel says which answers were live. Otherwise the answers are '
+      + 'recorded ones. Grading always replays the recorded answers, so the verdict '
+      + 'never depends on what a model happened to say: what is judged is your '
       + 'prompt, the fields you asked for, and how many calls you made.',
     ],
     seeAlso: ['filter', 'switch', 'aggregate', 'agentTool'],
