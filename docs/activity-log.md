@@ -46,7 +46,7 @@ whose types drift between releases cannot be consumed by anything downstream.
 | `credential.create` | A credential was created | `id`, `credentialType` |
 | `credential.delete` | A credential was deleted | `id` |
 | `workflow.run` | A full run finished | `status`, `nodes`, `errors`, `durationMs`, `itemsOut`; with live answers also `liveCalls` and `tokens` |
-| `node.run` | One node was run with Execute Node | `node`, `nodeType`, `status` |
+| `node.run` | One node was run with Execute Node, or only the nodes before it with Execute previous nodes | `node`, `nodeType`, `status`; `previousOnly: true` for Execute previous nodes, where `status` is `notRun` |
 | `workflow.reset` | The canvas was reset | — |
 | `approval.pause` | A run stopped at an approval | `node` |
 | `approval.decide` | The learner approved or rejected | `node`, `decision` |

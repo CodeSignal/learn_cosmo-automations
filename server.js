@@ -377,9 +377,13 @@ async function handleApi(req, res, parsed) {
 
     const runId = String(body.runId || Date.now());
     const untilNode = body.untilNode || null;
+    const inputOnly = Boolean(untilNode && body.inputOnly);
 
     const trace = await run(scenario, graph, {
       untilNode,
+      inputOnly,
+      // The approval just answered: what came before it replays without being shown.
+      resumeFrom: typeof body.resumeFrom === 'string' ? body.resumeFrom : null,
       /**
        * Interactive: an approval with no decision yet PAUSES rather than falling
        * back to `scenario.approvals`. That fallback exists so headless runs (the
@@ -431,6 +435,7 @@ async function handleApi(req, res, parsed) {
         node: target ? target.name : untilNode,
         nodeType: target ? target.type : null,
         status: record ? record.status : 'notRun',
+        ...(inputOnly ? { previousOnly: true } : {}),
       });
     } else {
       activity.record('workflow.run', {

@@ -86,6 +86,15 @@ the pause costs nothing, because none of them touch anything real.
 Determinism bought resumability for free. It is the same property that makes
 grading possible, used twice.
 
+What the candidate *sees* is not a re-run. Answering an approval sends
+`resumeFrom`, and the nodes before the approval replay silently — no simulated
+latency, no progress events — so the run visibly carries on from the approval. A
+live model is not asked twice: identical calls are answered from the session's
+cache. Execute Node and Execute previous nodes work the same way: only that node,
+or only the nodes directly before it, are shown running, and what feeds them
+replays silently. The trace is unchanged by any of this, so grading still
+reproduces it exactly.
+
 ```jsonc
 // Answers approvals for HEADLESS runs — the solvability check, run.js, the tests.
 // An interactive run ignores this and asks the candidate, which is the point.

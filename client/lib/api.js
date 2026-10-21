@@ -18,8 +18,12 @@ export const api = {
 
   /**
    * @param graph      the workflow to run
-   * @param options    { untilNode, runId } — `untilNode` runs only that node and
-   *                   what it depends on, and is never saved as the graded run.
+   * @param options    { untilNode, inputOnly, resumeFrom, runId } — `untilNode` runs only that
+   *                   node and what it depends on, and is never saved as the
+   *                   graded run; with `inputOnly` it stops before that node and
+   *                   only records what would arrive there. `resumeFrom` names
+   *                   the approval just answered, so the nodes before it replay
+   *                   without being shown running.
    */
   execute: (graph, options = {}) => request('/api/execute', {
     method: 'POST',

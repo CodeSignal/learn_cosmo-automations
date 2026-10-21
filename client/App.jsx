@@ -20,6 +20,7 @@ import {
   setNodesDisabled, updateCredential, updateNode, wouldCycle,
 } from './lib/graph.js';
 import { effectiveOutputs } from '../shared/node-ports.mjs';
+import { lastRunInput } from '../shared/last-run-input.mjs';
 
 const EMPTY_GRAPH = { version: 1, nodes: [], connections: [], credentials: [] };
 
@@ -294,7 +295,7 @@ export function App() {
    */
   const [decisions, setDecisions] = useState({});
 
-  const handleExecute = useCallback(async (untilNode = null, withDecisions = null) => {
+  const handleExecute = useCallback(async (untilNode = null, withDecisions = null, options = {}) => {
     setRunning(true);
     setError(null);
     setLiveStatus({});
@@ -307,6 +308,8 @@ export function App() {
       await saver.flushNow();
       const { trace: result } = await api.execute(graphRef.current, {
         ...(untilNode ? { untilNode } : {}),
+        ...(untilNode && options.inputOnly ? { inputOnly: true } : {}),
+        ...(options.resumeFrom ? { resumeFrom: options.resumeFrom } : {}),
         ...(Object.keys(answers).length ? { decisions: answers } : {}),
       });
       setTrace(result);
@@ -320,8 +323,10 @@ export function App() {
         // The prompt itself is shown in the run log, where the items are; a toast
         // on top of it would say the same thing twice.
       } else if (result.partial) {
-        const ran = (result.nodes || []).length;
-        showToast(`Ran ${ran} node${ran === 1 ? '' : 's'}. Execute the whole workflow before submitting.`);
+        const ran = (result.nodes || []).filter((r) => r.status !== 'notRun').length;
+        showToast(result.inputOnly
+          ? `Ran the ${ran} node${ran === 1 ? '' : 's'} before this one. Execute the whole workflow before submitting.`
+          : `Ran ${ran} node${ran === 1 ? '' : 's'}. Execute the whole workflow before submitting.`);
       }
     } catch (err) {
       setError(err.message);
@@ -335,7 +340,8 @@ export function App() {
   const handleDecide = useCallback((node, decision) => {
     const next = { ...decisions, [node]: decision };
     setDecisions(next);
-    handleExecute(null, next);
+    // Carry on from the approval: the nodes before it replay without being shown.
+    handleExecute(null, next, { resumeFrom: node });
   }, [decisions, handleExecute]);
 
   /**
@@ -467,6 +473,9 @@ export function App() {
   const openDefinition = openNode ? definitions[openNode.type] : null;
   const openRecord = openNode && trace
     ? (trace.nodes || []).find((r) => r.id === openNode.id) || null
+    : null;
+  const openInputFallback = openNode && !(openRecord && openRecord.inputSample)
+    ? lastRunInput(graph, trace, openNode.id)
     : null;
 
   const nodesById = Object.fromEntries(graph.nodes.map((n) => [n.id, n]));
@@ -601,6 +610,8 @@ export function App() {
             )}
             onToggleDisabled={(disabled) => handleSetDisabled([openNode.id], disabled)}
             onExecuteNode={() => handleExecute(openNode.id)}
+            onExecutePrevious={() => handleExecute(openNode.id, null, { inputOnly: true })}
+            inputFallback={openInputFallback}
             canExecuteNode={!openDefinition.toolOutput && (openDefinition.inputs === 0
               || graph.connections.some((c) => c.to === openNode.id))}
             onOpenDocs={() => setHelpTopic(`node:${openNode.type}`)}

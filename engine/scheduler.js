@@ -270,6 +270,44 @@ async function executeWorkflow(scenario, graph, options = {}) {
     untilNode = options.untilNode;
     trace.partial = true;
     trace.untilNode = options.untilNode;
+    if (options.inputOnly) trace.inputOnly = true;
+  }
+
+  /**
+   * "Execute previous nodes" runs everything the node depends on and stops at the
+   * node itself: it records what would arrive there, so the input panel can show
+   * it, and runs nothing else. Without this the button was Execute Node under
+   * another name, and ran the node it was meant to prepare.
+   */
+  const inputOnly = Boolean(untilNode && options.inputOnly);
+
+  /**
+   * Nodes that run without being shown running: no simulated latency and no
+   * progress events. Every node the result depends on still runs, so the trace is
+   * exactly what a full replay produces and grading can reproduce it — only what
+   * the candidate watches changes, and it now matches what they asked for:
+   *
+   *  · Execute Node — only that node is seen running; what feeds it replays
+   *    silently.
+   *  · Execute previous nodes — only the nodes directly before it are seen
+   *    running.
+   *  · Answering an approval (`resumeFrom`) — the run carries on from the
+   *    approval; what came before replays silently instead of running again on
+   *    screen. Identical live model calls are answered from the session's cache,
+   *    so nothing is asked twice.
+   */
+  const quietIds = new Set();
+  if (untilNode) {
+    for (const id of ancestorsOf(untilNode, acyclic)) quietIds.add(id);
+    if (inputOnly) {
+      for (const c of acyclic) if (c.to === untilNode) quietIds.delete(c.from);
+      // The target only has its input recorded; it must not light up as if it ran.
+      quietIds.add(untilNode);
+    }
+  } else if (options.resumeFrom) {
+    const from = byId.get(options.resumeFrom)
+      || nodes.find((n) => n.name === options.resumeFrom);
+    if (from) for (const id of ancestorsOf(from.id, acyclic)) quietIds.add(id);
   }
 
   /** nodeId -> Item[][] (outer array = output port) */
@@ -526,7 +564,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
   const recordById = new Map();
 
   const emitEnd = (record) => {
-    if (!onProgress) return;
+    if (!onProgress || quietIds.has(record.id)) return;
     onProgress({
       type: 'nodeEnd',
       id: record.id,
@@ -558,6 +596,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
       }
       // The last pass's items are what a candidate opening the node will see.
       if (record.output) existing.output = record.output;
+      if (record.outputSamples) existing.outputSamples = record.outputSamples;
       if (record.inputSample) existing.inputSample = record.inputSample;
       if (record.outputsByPort) {
         existing.outputsByPort = existing.outputsByPort
@@ -609,7 +648,8 @@ async function executeWorkflow(scenario, graph, options = {}) {
       return;
     }
 
-    if (onProgress) {
+    const quiet = quietIds.has(node.id);
+    if (onProgress && !quiet) {
       onProgress({ type: 'nodeStart', id: node.id, name: node.name, nodeType: node.type });
     }
 
@@ -647,6 +687,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
     if (node.disabled) {
       record.status = 'disabled';
       record.itemsOut = inputPorts[0].length;
+      record.outputSamples = [inputPorts[0].slice(0, 50)];
       outputsById.set(node.id, [inputPorts[0]]);
       nodeOutputsByName[node.name] = inputPorts[0];
       pushRecord(record);
@@ -680,10 +721,19 @@ async function executeWorkflow(scenario, graph, options = {}) {
       return;
     }
 
+    if (inputOnly && node.id === untilNode) {
+      record.status = 'notRun';
+      record.inputSample = inputPorts[0] ? inputPorts[0].slice(0, 50) : [];
+      record.notes.push({ inputOnly: true });
+      outputsById.set(node.id, ports.map(() => []));
+      pushRecord(record);
+      return;
+    }
+
     const nodeStart = Date.now();
     const credential = node.credentialId ? credentials.get(node.credentialId) : null;
 
-    await pause(latencyFor(def, modeOf(def, node) === 'runOncePerItem' ? inputPorts[0].length : 1));
+    if (!quiet) await pause(latencyFor(def, modeOf(def, node) === 'runOncePerItem' ? inputPorts[0].length : 1));
 
     /**
      * An approval either has its answer already or stops the run here.
@@ -723,6 +773,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
         { port: 1, name: 'rejected', count: outputs[1].length },
       ];
       record.output = outputs[approved ? 0 : 1].slice(0, 50);
+      record.outputSamples = outputs.map((p) => p.slice(0, 50));
       record.inputSample = inputPorts[0].slice(0, 50);
       record.notes.push({ decision });
 
@@ -884,6 +935,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
         port: i, name: ports[i] ? ports[i].name : String(i), count: p.length,
       }));
       record.output = outputs[0] ? outputs[0].slice(0, 50) : [];
+      record.outputSamples = outputs.map((p) => p.slice(0, 50));
       record.inputSample = inputPorts[0] ? inputPorts[0].slice(0, 50) : [];
 
       outputsById.set(node.id, outputs);
@@ -1018,6 +1070,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
       { port: LOOP_PORT, name: 'loop', count: items.length },
     ];
     record.output = doneItems.slice(0, 50);
+    record.outputSamples = outputs.map((p) => p.slice(0, 50));
     record.inputSample = items.slice(0, 50);
     record.notes.push({ batches, batchSize: size, returned: accumulated.length });
 
@@ -1059,7 +1112,9 @@ async function executeWorkflow(scenario, graph, options = {}) {
   // A node with no outgoing connection on any port is a leaf; report its
   // final payload so the STDOUT can show what the workflow actually produced.
   trace.finalPayloads = {};
-  const executed = new Set(trace.nodes.map((r) => r.id));
+  // A `notRun` record (an unused tool, or the target of Execute previous nodes)
+  // produced nothing, so it does not stop the node before it being a leaf.
+  const executed = new Set(trace.nodes.filter((r) => r.status !== 'notRun').map((r) => r.id));
   for (const node of nodes) {
     if (!executed.has(node.id)) continue;
     // A node counts as a leaf when nothing downstream of it actually ran, which

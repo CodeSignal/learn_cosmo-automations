@@ -75,6 +75,86 @@ test('a partial run still carries the graph hash of the whole graph', async () =
   assert.strictEqual(partial.graphHash, full.graphHash);
 });
 
+/* ── Execute previous nodes ────────────────────────────────────────────── */
+
+test('inputOnly runs the nodes before the target and records its input without running it', async () => {
+  const trace = await run(scenario, graph, { untilNode: 'n4', inputOnly: true });
+  assert.deepStrictEqual(trace.nodes.map((n) => n.name), [
+    'When clicking Execute', 'Fetch Orders', 'Split Out Orders', 'Filter High Value EU',
+  ]);
+  const filter = trace.nodes.find((n) => n.id === 'n4');
+  assert.strictEqual(filter.status, 'notRun');
+  assert.strictEqual(filter.itemsIn, 12);
+  assert.strictEqual(filter.inputSample.length, 12);
+  assert.strictEqual(filter.itemsOut, 0);
+  assert.strictEqual(filter.output, undefined, 'the target produced nothing, because it did not run');
+  assert.deepStrictEqual([trace.partial, trace.inputOnly], [true, true]);
+  assert.deepStrictEqual(Object.keys(trace.finalPayloads), ['Split Out Orders']);
+});
+
+test('inputOnly never performs the target node\'s side effect', async () => {
+  const trace = await run(scenario, graph, { untilNode: 'n6', inputOnly: true }); // Notify Ops
+  assert.ok(!trace.httpCalls.some((c) => /slack/.test(c.path)), 'Slack must not be called');
+  const slack = trace.nodes.find((n) => n.id === 'n6');
+  assert.deepStrictEqual([slack.status, slack.itemsIn], ['notRun', 1]);
+});
+
+test('inputOnly without a target node is an ordinary full run', async () => {
+  const trace = await run(scenario, graph, { inputOnly: true });
+  assert.strictEqual(trace.partial, undefined);
+  assert.strictEqual(trace.inputOnly, undefined);
+  assert.ok(trace.nodes.every((n) => n.status === 'success'));
+});
+
+test('every record keeps a sample of each output port, not just the first', async () => {
+  const ifGraph = JSON.parse(fs.readFileSync(path.join(DIR, 'variants', 'correct-3-if-branch.json'), 'utf8'));
+  const trace = await run(scenario, ifGraph);
+  const branch = trace.nodes.find((n) => n.id === 'n4');
+  assert.strictEqual(branch.outputSamples.length, 2);
+  assert.strictEqual(branch.outputSamples[0].length, 3);
+  assert.strictEqual(branch.outputSamples[1].length, 9, 'the false branch is sampled too');
+  assert.deepStrictEqual(branch.outputSamples[0], branch.output);
+});
+
+/* ── what is shown running ─────────────────────────────────────────────── */
+
+/** Node ids that announced a start, in order. */
+async function startsOf(scn, g, options) {
+  const starts = [];
+  const trace = await run(scn, g, { ...options, onProgress: (e) => { if (e.type === 'nodeStart') starts.push(e.id); } });
+  return { starts, trace };
+}
+
+test('Execute Node shows only that node running; what feeds it replays silently', async () => {
+  const { starts, trace } = await startsOf(scenario, graph, { untilNode: 'n4' });
+  assert.deepStrictEqual(starts, ['n4']);
+  assert.strictEqual(trace.nodes.length, 4, 'the upstream still ran — its output is what n4 worked on');
+});
+
+test('Execute previous nodes shows only the node directly before the target running', async () => {
+  const { starts, trace } = await startsOf(scenario, graph, { untilNode: 'n5', inputOnly: true });
+  assert.deepStrictEqual(starts, ['n4']);
+  assert.strictEqual(trace.nodes.find((n) => n.id === 'n5').status, 'notRun');
+});
+
+test('answering an approval carries on from it, and the run is still a faithful replay', async () => {
+  const dir = path.join(__dirname, '..', 'scenarios', 'ticket-triage-ai');
+  const ai = JSON.parse(fs.readFileSync(path.join(dir, 'scenario.json'), 'utf8'));
+  const ref = JSON.parse(fs.readFileSync(path.join(dir, 'reference_solution.json'), 'utf8'));
+  const decisions = { 'Confirm Escalation': 'approve' };
+  const options = { interactive: true, decisions };
+
+  const { starts, trace: resumed } = await startsOf(ai, ref, { ...options, resumeFrom: 'Confirm Escalation' });
+  const shown = starts.map((id) => ref.nodes.find((n) => n.id === id).name);
+  assert.deepStrictEqual(shown.slice(0, 1), ['Confirm Escalation'], 'nothing before the approval is shown again');
+  assert.ok(!shown.includes('Classify Ticket'));
+
+  // Grading compares the saved run with a fresh one, timings aside.
+  const fresh = await run(ai, ref, options);
+  const comparable = (t) => JSON.stringify(t, (k, v) => (['ms', 'durationMs', 'simulatedMs'].includes(k) ? undefined : v));
+  assert.strictEqual(comparable(resumed), comparable(fresh));
+});
+
 /* ── simulated latency ─────────────────────────────────────────────────── */
 
 test('latency is off by default, so grading and tests stay fast', async () => {

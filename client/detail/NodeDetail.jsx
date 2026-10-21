@@ -24,7 +24,8 @@ import { insertExpression } from './ExpressionInput.jsx';
 export function NodeDetail({
   node, definition, record, credentials, credentialTypes, trace,
   onClose, onRename, onParameterChange, onCredentialChange, onToggleDisabled,
-  onExecuteNode, canExecuteNode, onOpenDocs, onCreateCredential, running,
+  onExecuteNode, onExecutePrevious, canExecuteNode, onOpenDocs, onCreateCredential, running,
+  inputFallback,
 }) {
   const paramsHostRef = useRef(null);
   const [tab, setTab] = useState('parameters');
@@ -43,8 +44,13 @@ export function NodeDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.name]);
 
-  const inputItems = record ? (record.inputSample || []) : [];
-  const outputItems = record ? (record.output || []) : [];
+  // A record from "Execute previous nodes" holds the input but never ran.
+  const hasRun = Boolean(record && record.status !== 'notRun');
+  // A node wired up after the last run has no record, but the nodes feeding it
+  // may have run: their output is what would arrive here.
+  const fromLastRun = !(record && record.inputSample) && Boolean(inputFallback && inputFallback.length);
+  const inputItems = record && record.inputSample ? record.inputSample : (inputFallback || []);
+  const outputItems = hasRun ? (record.output || []) : [];
   const isTrigger = definition.inputs === 0;
 
   // Every node's output so far, so `$node["Name"]` previews resolve.
@@ -221,7 +227,7 @@ export function NodeDetail({
       items={outputItems}
       note={outputNote}
       error={record && record.status === 'error' ? record.error : null}
-      empty={record
+      empty={hasRun
         ? { title: 'No output', text: 'This node produced no items on its first output.' }
         : {
           title: 'No output yet',
@@ -242,7 +248,7 @@ export function NodeDetail({
       + inPorts.slice(1)
         .map((p) => `input ${p.port + 1} (${p.count} ${p.count === 1 ? 'item' : 'items'})`)
         .join(', ')
-    : null;
+    : (fromLastRun ? 'From the last run of the nodes before this one. This node has not run yet.' : null);
 
   const inputPane = (
     <ItemPanel
@@ -266,7 +272,7 @@ export function NodeDetail({
               ? 'Execute the previous nodes to see the items that arrive here.'
               : 'Connect this node to an earlier one first.',
             action: canExecuteNode && !running
-              ? { label: 'Execute previous nodes', onClick: onExecuteNode }
+              ? { label: 'Execute previous nodes', onClick: onExecutePrevious }
               : null,
           })}
     />
