@@ -1,17 +1,22 @@
-import { useEffect, useId, useState } from 'react';
+import {
+  createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import { cx } from '../ui/primitives.jsx';
 import { Icon } from '../ui/Icon.jsx';
+import { CodeField } from './CodeField.jsx';
+import { ExpressionEditor } from './ExpressionEditor.jsx';
+import { PATH_MIME, resolveExpression, spliceAt } from './expression.mjs';
 
-/** The drag payload an input/output field carries: a path like `$json.email`. */
-export const PATH_MIME = 'application/cosmo-path';
+export { PATH_MIME };
 
 /**
  * A parameter field that is either a fixed value or an expression.
  *
  * The `=` prefix is the whole model — it is what the engine reads — and the
  * `fx` button in the corner flips it, so nobody has to know the convention to
- * switch modes. An expression field looks different (code font, tinted) and
- * shows what it resolves to underneath.
+ * switch modes. The `=` itself is not shown: an expression field looks
+ * different instead (code font, tinted, its `{{ }}` spans coloured and marked
+ * by what they resolve to) and shows its result underneath.
  *
  * The preview is the teaching feature, not polish: half of learning
  * expressions is seeing what they resolve to, and seeing `[undefined]` the
@@ -20,196 +25,239 @@ export const PATH_MIME = 'application/cosmo-path';
  * remains the authority — this preview mirrors it, never a second
  * implementation of the semantics.
  *
- * Fields from the input panel can be dropped onto it; the path is inserted as
- * `{{ $json.path }}` and the field becomes an expression.
+ * A field from the input panel goes in at the caret, by click (into the field
+ * last worked in) or by dropping it where it should go. A fixed value keeps its
+ * text and becomes an expression around it.
  */
 export function ExpressionInput({
   value, onChange, placeholder, multiline, sampleItem, sampleIndex = 0, itemCount = 0,
-  nodeOutputs, ariaLabel, id,
+  items, nodeOutputs, ariaLabel, id, label,
 }) {
   const raw = value === undefined || value === null ? '' : String(value);
   const isExpression = raw.startsWith('=');
-  const [preview, setPreview] = useState(null);
+  // What the field shows: an expression without its `=`.
+  const shown = isExpression ? raw.slice(1) : raw;
   const [dropping, setDropping] = useState(false);
-  const previewId = useId();
+  const [fullscreen, setFullscreen] = useState(false);
+  const fieldRef = useRef(null);
+  const pendingCaret = useRef(null);
+  const worked = useRef(false);
+  const droppedPath = useRef(false);
+  const previewId = `${id || ariaLabel || 'expr'}-result`.replace(/\s+/g, '-');
 
-  useEffect(() => {
-    if (!isExpression) { setPreview(null); return; }
-    setPreview(resolvePreview(raw, { sampleItem, sampleIndex, itemCount, nodeOutputs }));
-  }, [raw, isExpression, sampleItem, sampleIndex, itemCount, nodeOutputs]);
+  const resolved = useMemo(() => (isExpression
+    ? resolveExpression(shown, { sampleItem, sampleIndex, itemCount, nodeOutputs })
+    : null), [isExpression, shown, sampleItem, sampleIndex, itemCount, nodeOutputs]);
+
+  const commit = (text, asExpression = isExpression) => onChange(asExpression ? `=${text}` : text);
+
+  /**
+   * Put `{{ path }}` at the caret — or at the end, if this field has not been
+   * worked in yet — and make it an expression if it was not one.
+   */
+  const insert = (path) => {
+    const el = fieldRef.current;
+    const atCaret = worked.current && el;
+    const next = spliceAt(
+      shown,
+      atCaret ? el.selectionStart : shown.length,
+      atCaret ? el.selectionEnd : shown.length,
+      `{{ ${path} }}`,
+    );
+    pendingCaret.current = next.caret;
+    commit(next.text, true);
+  };
+
+  // The caret goes after what was inserted, in the element now on screen (a
+  // fixed one-line field turns into the expression editor as it switches).
+  // A fixed multi-line field grows with its text, like the expression editor,
+  // so it never shows a scrollbar under the buttons in its corner.
+  useLayoutEffect(() => {
+    const el = fieldRef.current;
+    if (isExpression || !multiline || !el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [isExpression, multiline, shown]);
+
+  useLayoutEffect(() => {
+    const caret = pendingCaret.current;
+    const el = fieldRef.current;
+    if (caret === null || !el) return;
+    pendingCaret.current = null;
+    el.focus();
+    el.setSelectionRange(caret, caret);
+  });
+
+  const targets = useContext(ExpressionTargets);
+  const insertRef = useRef(insert);
+  insertRef.current = insert;
+  const target = useMemo(() => ({
+    insert: (path) => insertRef.current(path),
+    element: () => fieldRef.current,
+  }), []);
+  useEffect(() => targets?.register(target), [targets, target]);
+
+  const handleChange = (event) => {
+    // A field dropped from the input panel lands where the browser puts it;
+    // all that is left is to make the text an expression.
+    const asExpression = isExpression || droppedPath.current;
+    // A fixed field becomes the expression editor as it switches: keep the
+    // caret after what was dropped.
+    if (droppedPath.current && !isExpression) pendingCaret.current = event.target.selectionEnd;
+    droppedPath.current = false;
+    commit(event.target.value, asExpression);
+  };
+
+  const fieldProps = {
+    id,
+    value: shown,
+    placeholder,
+    'aria-label': ariaLabel,
+    'aria-describedby': resolved ? previewId : undefined,
+    onChange: handleChange,
+    onFocus: () => { worked.current = true; targets?.focus(target); },
+    onDragOver: (event) => {
+      if ([...event.dataTransfer.types].includes(PATH_MIME)) setDropping(true);
+    },
+    onDragLeave: () => setDropping(false),
+    onDrop: (event) => {
+      setDropping(false);
+      if (!event.dataTransfer.getData(PATH_MIME)) return;
+      worked.current = true;
+      droppedPath.current = true;
+    },
+  };
 
   const InputTag = multiline ? 'textarea' : 'input';
-
-  const toggleMode = () => {
-    if (isExpression) onChange(raw.slice(1));
-    else onChange(`=${raw}`);
-  };
-
-  const onDrop = (event) => {
-    const path = event.dataTransfer.getData(PATH_MIME);
-    setDropping(false);
-    if (!path) return;
-    event.preventDefault();
-    const snippet = `{{ ${path} }}`;
-    onChange(isExpression ? `${raw}${snippet}` : `=${snippet}`);
-  };
 
   return (
     <div className={cx('ca-expression', isExpression && 'is-expression', dropping && 'is-dropping')}>
       <div className="ca-expression-field">
-        <InputTag
-          id={id}
-          className={cx('input', 'ca-expression-input', isExpression && 'ca-mono')}
-          value={raw}
-          rows={multiline ? 3 : undefined}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          spellCheck={false}
-          aria-label={ariaLabel}
-          aria-describedby={preview ? previewId : undefined}
-          onDragOver={(event) => {
-            if ([...event.dataTransfer.types].includes(PATH_MIME)) {
-              event.preventDefault();
-              setDropping(true);
-            }
-          }}
-          onDragLeave={() => setDropping(false)}
-          onDrop={onDrop}
-        />
-        <button
-          type="button"
-          className="ca-expression-mode"
-          onClick={toggleMode}
-          aria-pressed={isExpression}
-          aria-label={isExpression ? 'Switch to a fixed value' : 'Switch to an expression'}
-          title={isExpression
-            ? 'Expression — {{ }} is evaluated for each item. Click for a fixed value.'
-            : 'Fixed value. Click to make it an expression.'}
-        >
-          <Icon name="fx" size={14} />
-        </button>
+        {isExpression ? (
+          <CodeField
+            ref={fieldRef}
+            parts={resolved.parts}
+            singleLine={!multiline}
+            className={multiline ? 'is-multiline' : undefined}
+            {...fieldProps}
+          />
+        ) : (
+          <InputTag
+            ref={fieldRef}
+            className="input ca-expression-input"
+            rows={multiline ? 3 : undefined}
+            spellCheck={false}
+            {...fieldProps}
+          />
+        )}
+        <span className="ca-expression-actions">
+          {isExpression ? (
+            <button
+              type="button"
+              className="ca-expression-mode"
+              onClick={() => setFullscreen(true)}
+              aria-label="Open the expression editor"
+              title="Open the expression editor — more room, every input field, the result for each item"
+            >
+              <Icon name="expand" size={14} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="ca-expression-mode ca-expression-fx"
+            onClick={() => commit(shown, !isExpression)}
+            aria-pressed={isExpression}
+            aria-label={isExpression ? 'Switch to a fixed value' : 'Switch to an expression'}
+            title={isExpression
+              ? 'Expression — {{ }} is worked out for each item. Click for a fixed value.'
+              : 'Fixed value. Click to make it an expression.'}
+          >
+            <Icon name="fx" size={14} />
+          </button>
+        </span>
       </div>
 
-      {preview ? (
-        <div
-          id={previewId}
-          className={cx(
-            'ca-resolved',
-            'body-xxsmall',
-            preview.error && 'ca-resolved-error',
-            !preview.error && preview.display === '[undefined]' && 'ca-resolved-undefined',
-            preview.pending && 'ca-resolved-pending',
-          )}
-          role="status"
-        >
-          <span className="ca-resolved-label">{preview.error ? 'Error' : 'Result'}</span>
-          <span className={cx('ca-resolved-value', !preview.pending && 'ca-mono')}>
-            {preview.error || preview.display}
-          </span>
-        </div>
+      {resolved ? <Result id={previewId} resolved={resolved} /> : null}
+
+      {fullscreen ? (
+        <ExpressionEditor
+          title={label || ariaLabel || 'Expression'}
+          value={shown}
+          onChange={(text) => commit(text, true)}
+          onClose={() => setFullscreen(false)}
+          items={items || (sampleItem ? [sampleItem] : [])}
+          nodeOutputs={nodeOutputs}
+        />
       ) : null}
     </div>
   );
 }
 
 /**
- * Put `{{ path }}` into an expression field element, turning a fixed value into
- * an expression if it was not one already. Drives React's onChange through the
- * native setter so controlled state updates.
+ * What an expression resolves to. Text that came from a `{{ }}` span is marked,
+ * so in `Order {{ $json.id }} shipped` it is plain which part was worked out.
  */
-export function insertExpression(target, path) {
-  const current = target.value || '';
-  const snippet = `{{ ${path} }}`;
-  const next = current.startsWith('=') ? `${current}${snippet}` : `=${snippet}`;
-  const setter = Object.getOwnPropertyDescriptor(
-    target.tagName === 'TEXTAREA'
-      ? window.HTMLTextAreaElement.prototype
-      : window.HTMLInputElement.prototype,
-    'value',
-  ).set;
-  setter.call(target, next);
-  target.dispatchEvent(new Event('input', { bubbles: true }));
-  target.focus();
+export function Result({ id, resolved, className }) {
+  const { parts, error, pending, display } = resolved;
+  const undefinedLone = !error && !pending && display === '[undefined]';
+  const mixed = !error && !pending && parts.length > 1;
+  return (
+    <div
+      id={id}
+      className={cx(
+        'ca-resolved',
+        'body-xxsmall',
+        error && 'ca-resolved-error',
+        undefinedLone && 'ca-resolved-undefined',
+        pending && 'ca-resolved-pending',
+        className,
+      )}
+      role="status"
+    >
+      <span className="ca-resolved-label">{error ? 'Error' : 'Result'}</span>
+      <span className={cx('ca-resolved-value', !pending && !error && 'ca-mono')}>
+        {mixed ? parts.map((part, index) => (part.kind === 'text'
+          // eslint-disable-next-line react/no-array-index-key
+          ? <span key={index}>{part.text}</span>
+          : (
+            <span
+              // eslint-disable-next-line react/no-array-index-key
+              key={index}
+              className={cx('ca-resolved-part', part.undefined && 'is-undefined')}
+              title={part.source.trim()}
+            >
+              {part.raw === undefined || part.raw === null ? (part.undefined ? '[undefined]' : '') : part.value}
+            </span>
+          ))) : (error || display)}
+      </span>
+    </div>
+  );
 }
-
-const SPAN = /\{\{([\s\S]*?)\}\}/g;
 
 /**
- * Client-side mirror of engine/expression.js. Kept deliberately small: it only
- * has to render a preview, and the engine's result is what grading sees.
+ * The expression fields of one node, so a field clicked in the input panel goes
+ * into the one last worked in — or, before any has been, the first on screen.
  */
-function resolvePreview(rawValue, ctx) {
-  const body = rawValue.slice(1);
-  const matches = [...body.matchAll(SPAN)];
-  if (!matches.length) return { display: body, error: null };
-  if (!ctx.sampleItem) {
-    return { display: 'Execute the previous nodes to see what this resolves to', error: null, pending: true };
-  }
+export const ExpressionTargets = createContext(null);
 
-  const scope = buildScope(ctx);
-  const lone = matches.length === 1 && matches[0][0].length === body.length;
-  const parts = [];
-  let cursor = 0;
-
-  for (const match of matches) {
-    parts.push(body.slice(cursor, match.index));
-    cursor = match.index + match[0].length;
-
-    const source = match[1].trim();
-    if (!source) return { display: null, error: 'Empty expression' };
-
-    let result;
-    try {
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(...Object.keys(scope), `'use strict'; return (${source});`);
-      result = fn(...Object.values(scope));
-    } catch (err) {
-      return { display: null, error: err.message };
-    }
-
-    if (lone) return { display: display(result), error: null };
-    parts.push(result === undefined || result === null ? '' : display(result));
-  }
-  parts.push(body.slice(cursor));
-  return { display: parts.join(''), error: null };
-}
-
-function buildScope(ctx) {
-  const nodeOutputs = ctx.nodeOutputs || {};
-  const $node = {};
-  for (const name of Object.keys(nodeOutputs)) {
-    const items = nodeOutputs[name] || [];
-    const at = items[ctx.sampleIndex] !== undefined ? items[ctx.sampleIndex] : items[0];
-    $node[name] = { json: at ? at.json : undefined, all: items.map((i) => i.json) };
-  }
-  const $ = (name) => {
-    const items = nodeOutputs[name] || [];
-    const at = items[ctx.sampleIndex] !== undefined ? items[ctx.sampleIndex] : items[0];
+export function useExpressionTargets() {
+  return useMemo(() => {
+    const all = new Set();
+    let last = null;
     return {
-      item: at ? { json: at.json } : undefined,
-      first: () => (items[0] ? { json: items[0].json } : undefined),
-      last: () => (items.length ? { json: items[items.length - 1].json } : undefined),
-      all: () => items.map((i) => ({ json: i.json })),
+      register(target) {
+        all.add(target);
+        return () => { all.delete(target); if (last === target) last = null; };
+      },
+      focus(target) { last = target; },
+      insert(path) {
+        const alive = [...all].filter((t) => t.element()?.isConnected);
+        const chosen = alive.includes(last) ? last : alive.sort((a, b) => (
+          // eslint-disable-next-line no-bitwise
+          a.element().compareDocumentPosition(b.element()) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+        ))[0];
+        chosen?.insert(path);
+      },
     };
-  };
-  return {
-    $json: ctx.sampleItem ? ctx.sampleItem.json : undefined,
-    $node,
-    $,
-    $itemIndex: ctx.sampleIndex,
-    $items: () => new Array(ctx.itemCount).fill(null).map((_, i) => ({ json: {}, index: i })),
-    $now: new Date().toISOString(),
-    $today: new Date().toISOString().slice(0, 10),
-    $vars: {},
-    $env: {},
-  };
-}
-
-function display(value) {
-  if (value === undefined) return '[undefined]';
-  if (value === null) return 'null';
-  if (typeof value === 'object') {
-    try { return JSON.stringify(value); } catch { return String(value); }
-  }
-  return String(value);
+  }, []);
 }

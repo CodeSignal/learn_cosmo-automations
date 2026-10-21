@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Checkbox, IconButton, Tabs } from '../ui/primitives.jsx';
 import { Icon, Spinner } from '../ui/Icon.jsx';
 import { NodeGlyph } from '../canvas/NodeIcon.jsx';
@@ -7,7 +7,7 @@ import { Select } from '../ui/Select.jsx';
 import { SplitPanel } from '../ui/SplitPanel.jsx';
 import { ItemPanel } from './ItemPanel.jsx';
 import { ParamField } from './ParamField.jsx';
-import { insertExpression } from './ExpressionInput.jsx';
+import { ExpressionTargets, useExpressionTargets } from './ExpressionInput.jsx';
 
 /**
  * Node detail view: input items | parameters | output items, over the canvas.
@@ -27,7 +27,6 @@ export function NodeDetail({
   onExecuteNode, onExecutePrevious, canExecuteNode, onOpenDocs, onCreateCredential, running,
   inputFallback, previousCount = 0,
 }) {
-  const paramsHostRef = useRef(null);
   const [tab, setTab] = useState('parameters');
 
   /**
@@ -68,21 +67,19 @@ export function NodeDetail({
     sampleItem: inputItems[0] || null,
     sampleIndex: 0,
     itemCount: inputItems.length,
+    items: inputItems,
     nodeOutputs,
   };
 
   /**
-   * Clicking a field in the input panel appends it to whichever expression
-   * field was last focused, so field discovery flows straight into writing one.
+   * Clicking a field in the input panel puts it at the caret of the expression
+   * field last worked in (the first one, before any has been), so field
+   * discovery flows straight into writing one. The click itself takes focus
+   * away from that field, which is why it is remembered rather than looked up.
    * (Dragging it onto a field does the same, handled by ExpressionInput.)
    */
-  const insertPath = useCallback((path) => {
-    const host = paramsHostRef.current;
-    const active = host && host.querySelector('.ca-expression-input:focus');
-    const target = active || (host && host.querySelector('.ca-expression-input'));
-    if (!target) return;
-    insertExpression(target, path);
-  }, []);
+  const targets = useExpressionTargets();
+  const insertPath = useCallback((path) => targets.insert(path), [targets]);
 
   // `showFor: { mode: 'append' }` shows a field for one value; an array shows it
   // for any of several, which Remove Duplicates needs.
@@ -100,7 +97,7 @@ export function NodeDetail({
   const mode = describeMode(effectiveMode(definition, node));
 
   const centerPane = (
-    <div className="ca-pane ca-pane-center" ref={paramsHostRef}>
+    <div className="ca-pane ca-pane-center">
       <div className="ca-detail-head">
         <NodeGlyph group={definition.group} icon={definition.icon} size="md" />
         <div className="ca-detail-titles">
@@ -299,43 +296,45 @@ export function NodeDetail({
   );
 
   return (
-    <div
-      className="ca-ndv-scrim"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
-    >
-      <div className="ca-ndv" role="dialog" aria-modal="true" aria-label={`${node.name} settings`}>
-        <div className="ca-ndv-top">
-          <Button variant="text" size="xsmall" className="ca-ndv-back" onClick={onClose} title="Back to canvas (Esc)">
-            <Icon name="arrow-left" />
-            <span>Back to canvas</span>
-          </Button>
-        </div>
+    <ExpressionTargets.Provider value={targets}>
+      <div
+        className="ca-ndv-scrim"
+        onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      >
+        <div className="ca-ndv" role="dialog" aria-modal="true" aria-label={`${node.name} settings`}>
+          <div className="ca-ndv-top">
+            <Button variant="text" size="xsmall" className="ca-ndv-back" onClick={onClose} title="Back to canvas (Esc)">
+              <Icon name="arrow-left" />
+              <span>Back to canvas</span>
+            </Button>
+          </div>
 
-        <div className="ca-ndv-body">
-          <SplitPanel
-            className="ca-detail-outer"
-            orientation="horizontal"
-            initialSplit={27}
-            minLeft={14}
-            minRight={45}
-            dividerLabel="Resize input panel"
-            left={inputPane}
-            right={(
-              <SplitPanel
-                className="ca-detail-inner"
-                orientation="horizontal"
-                initialSplit={56}
-                minLeft={36}
-                minRight={20}
-                dividerLabel="Resize output panel"
-                left={centerPane}
-                right={outputPane}
-              />
-            )}
-          />
+          <div className="ca-ndv-body">
+            <SplitPanel
+              className="ca-detail-outer"
+              orientation="horizontal"
+              initialSplit={27}
+              minLeft={14}
+              minRight={45}
+              dividerLabel="Resize input panel"
+              left={inputPane}
+              right={(
+                <SplitPanel
+                  className="ca-detail-inner"
+                  orientation="horizontal"
+                  initialSplit={56}
+                  minLeft={36}
+                  minRight={20}
+                  dividerLabel="Resize output panel"
+                  left={centerPane}
+                  right={outputPane}
+                />
+              )}
+            />
+          </div>
         </div>
       </div>
-    </div>
+    </ExpressionTargets.Provider>
   );
 }
 

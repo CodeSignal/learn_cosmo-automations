@@ -139,6 +139,7 @@ export function ParamField({ descriptor, value, onChange, exprContext }) {
           {label}
           <ExpressionInput
             id={id}
+            label={descriptor.label}
             value={value}
             onChange={onChange}
             placeholder={descriptor.placeholder}

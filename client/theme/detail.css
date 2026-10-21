@@ -314,38 +314,39 @@
   min-height: var(--UI-Input-sm);
   height: auto;
   padding-right: var(--UI-Spacing-spacing-xxxl);
-  resize: vertical;
+  resize: none;
 }
 
 input.ca-expression-input { height: var(--UI-Input-sm); }
 
 textarea.ca-expression-input {
+  min-height: 76px;
+  overflow: hidden;
   padding-top: var(--UI-Spacing-spacing-s);
   padding-bottom: var(--UI-Spacing-spacing-s);
   line-height: 1.5;
 }
 
-/* An expression is code: code font, tinted, so the two modes never look alike. */
-.ca-expression.is-expression .ca-expression-input {
-  background: var(--Colors-Surface-Container-Tinted-Subtle);
-  font-size: var(--Fonts-Special-sm);
-  color: var(--Colors-Text-Body-Strong);
-}
-
-.ca-expression.is-dropping .ca-expression-input {
+.ca-expression.is-dropping .ca-expression-input,
+.ca-expression.is-dropping .ca-code-back {
   border-color: var(--Colors-Primary-Default);
   border-style: dashed;
 }
 
-.ca-expression-mode {
+.ca-expression-actions {
   position: absolute;
   top: var(--UI-Spacing-spacing-xs);
   right: var(--UI-Spacing-spacing-xs);
+  display: flex;
+  gap: var(--UI-Spacing-spacing-min);
+}
+
+.ca-expression-mode {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: var(--UI-Radius-radius-xxs);
@@ -359,10 +360,256 @@ textarea.ca-expression-input {
   color: var(--Colors-Icon-Strong);
 }
 
-.ca-expression.is-expression .ca-expression-mode {
+.ca-expression.is-expression .ca-expression-fx {
   background: var(--Colors-Emphasis-Primary-Subtle);
   color: var(--Colors-Icon-Primary);
 }
+
+/*
+ * The expression editor: a transparent textarea over a layer drawing the same
+ * text in colour. Every property that moves a character — font, size, line
+ * height, padding, border width, wrapping — must be identical on the two, so
+ * they are set together on .ca-code-box and nowhere else.
+ */
+.ca-code {
+  position: relative;
+  min-width: 0;
+}
+
+.ca-code-box {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 10px 64px 10px var(--UI-Spacing-spacing-ms);
+  border: 1px solid transparent;
+  border-radius: var(--UI-Radius-radius-s);
+  font-size: var(--Fonts-Special-sm);
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  tab-size: 2;
+}
+
+.ca-code-back {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-color: var(--Colors-Input-Border-Default);
+  background: var(--Colors-Surface-Container-Tinted-Subtle);
+  color: var(--Colors-Text-Body-Strong);
+  pointer-events: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ca-code-input {
+  position: relative;
+  min-height: var(--UI-Input-sm);
+  overflow: hidden;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--Colors-Text-Body-Strong);
+  outline: none;
+}
+
+.ca-code-input::placeholder { color: var(--Colors-Input-Text-Placeholder); }
+.ca-code-input::selection { background: color-mix(in srgb, var(--Colors-Primary-Default) 28%, transparent); color: transparent; }
+
+.ca-code:hover .ca-code-back { border-color: var(--Colors-Input-Border-Hover); }
+.ca-code:focus-within .ca-code-back {
+  border-color: var(--Colors-Input-Border-Focus);
+  box-shadow: 0 0 0 4px var(--Colors-Input-Shadow-Focus);
+}
+
+.ca-code.is-multiline .ca-code-input { min-height: 76px; }
+
+/* Syntax colours, light and dark. */
+.ca-code, .ca-xed {
+  --ca-syn-brace: var(--Colors-Base-Accent-Magenta-800);
+  --ca-syn-variable: var(--Colors-Base-Accent-Midnight-Blue-1000);
+  --ca-syn-call: var(--Colors-Base-Accent-Sky-Blue-900);
+  --ca-syn-string: var(--Colors-Base-Accent-Green-900);
+  --ca-syn-number: var(--Colors-Base-Accent-Yellow-900);
+  --ca-syn-muted: var(--Colors-Text-Body-Light);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ca-code, .ca-xed {
+    --ca-syn-brace: var(--Colors-Base-Accent-Magenta-300);
+    --ca-syn-variable: var(--Colors-Base-Accent-Midnight-Blue-300);
+    --ca-syn-call: var(--Colors-Base-Accent-Sky-Blue-300);
+    --ca-syn-string: var(--Colors-Base-Accent-Green-300);
+    --ca-syn-number: var(--Colors-Base-Accent-Yellow-300);
+  }
+}
+
+.ca-code-text { color: var(--Colors-Text-Body-Default); }
+
+/*
+ * A `{{ }}` span is marked by what it resolved to. Background and an inset
+ * ring only: padding or a border would move the characters off the textarea's.
+ */
+.ca-code-span { border-radius: 3px; }
+.ca-code-span.is-ok { background: color-mix(in srgb, var(--Colors-Alert-Success-Default) 13%, transparent); }
+.ca-code-span.is-undefined { background: color-mix(in srgb, var(--Colors-Alert-Warning-Default) 18%, transparent); }
+.ca-code-span.is-error,
+.ca-code-span.is-open { background: color-mix(in srgb, var(--Colors-Alert-Error-Default) 14%, transparent); }
+
+.ca-tok-brace { color: var(--ca-syn-brace); font-weight: 600; }
+.ca-tok-variable { color: var(--ca-syn-variable); font-weight: 600; }
+.ca-tok-call { color: var(--ca-syn-call); font-weight: 600; }
+.ca-tok-string { color: var(--ca-syn-string); }
+.ca-tok-number,
+.ca-tok-literal { color: var(--ca-syn-number); }
+.ca-tok-punct { color: var(--ca-syn-muted); }
+.ca-tok-property,
+.ca-tok-name { color: var(--Colors-Text-Body-Strong); }
+
+.ca-resolved-part {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--Colors-Alert-Success-Default) 13%, transparent);
+}
+
+.ca-resolved-part.is-undefined {
+  background: color-mix(in srgb, var(--Colors-Alert-Warning-Default) 18%, transparent);
+}
+
+/* ── full-screen expression editor ───────────────────────────────────── */
+
+.ca-xed {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(320px, 1.4fr) minmax(240px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.ca-xed-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ca-xed-col + .ca-xed-col { border-left: 1px solid var(--Colors-Border-Subtle); }
+
+.ca-xed-input { background: var(--Colors-Surface-App-Subtle); }
+.ca-xed-input .ca-pane { height: 100%; }
+
+.ca-xed-main,
+.ca-xed-result {
+  gap: var(--UI-Spacing-spacing-s);
+  padding: var(--UI-Spacing-spacing-ms);
+  overflow: auto;
+}
+
+.ca-xed-head {
+  display: flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-s);
+  min-height: 28px;
+}
+
+.ca-xed-title { font-weight: 600; color: var(--Colors-Text-Body-Strongest, var(--Colors-Text-Body-Strong)); }
+.ca-xed-hint { color: var(--Colors-Text-Body-Light); }
+.ca-xed-hint code { color: var(--ca-syn-brace); }
+
+.ca-xed-editor { flex: 1 1 auto; min-height: 160px; }
+.ca-xed-editor .ca-code-box { padding: var(--UI-Spacing-spacing-ms); font-size: 13px; line-height: 20px; }
+.ca-xed-editor .ca-code-input { height: 100%; min-height: 160px; overflow: auto; }
+.ca-xed-editor .ca-code-back { overflow: hidden; }
+
+.ca-xed-ref {
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-s);
+  flex: 0 0 auto;
+}
+
+.ca-xed-ref-title {
+  color: var(--Colors-Text-Body-Light);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* One row per reference: what to type, then what it gives. Scannable as a column. */
+.ca-xed-ref-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 2px var(--UI-Spacing-spacing-s);
+  margin-top: var(--UI-Spacing-spacing-xxs);
+}
+
+.ca-xed-chip {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--UI-Spacing-spacing-s);
+  min-width: 0;
+  padding: 3px var(--UI-Spacing-spacing-xs);
+  border: 1px solid transparent;
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: none;
+  color: var(--Colors-Text-Body-Light);
+  cursor: pointer;
+  text-align: left;
+}
+
+.ca-xed-chip code {
+  overflow: hidden;
+  color: var(--ca-syn-variable);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-xed-chip.is-function code { color: var(--ca-syn-call); }
+.ca-xed-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-xed-chip:hover { border-color: var(--Colors-Border-Subtle); background: var(--Colors-Emphasis-Primary-Subtle); }
+
+.ca-xed-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--UI-Spacing-spacing-xxs);
+  margin-left: auto;
+  color: var(--Colors-Text-Body-Default);
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-xed-resolved { padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-ms); }
+.ca-xed-resolved .ca-resolved-value { white-space: pre-wrap; font-size: 13px; line-height: 20px; }
+
+.ca-xed-spans {
+  display: flex;
+  flex-direction: column;
+  gap: var(--UI-Spacing-spacing-xxs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ca-xed-span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--UI-Spacing-spacing-s);
+  padding: var(--UI-Spacing-spacing-xxs) var(--UI-Spacing-spacing-s);
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: var(--Colors-Surface-App-Subtle);
+}
+
+.ca-xed-span-code { color: var(--ca-syn-variable); overflow-wrap: anywhere; }
+.ca-xed-span-value { color: var(--Colors-Text-Body-Strong); overflow-wrap: anywhere; }
+.ca-xed-span-value.is-undefined { color: var(--Colors-Alert-Warning-Dark); }
+.ca-xed-span-value.is-error { color: var(--Colors-Alert-Error-Dark); }
+
+.ca-xed-foot { display: flex; justify-content: flex-end; margin-top: auto; }
+
 
 /* The resolved-value preview: the teaching surface. */
 /*
@@ -387,7 +634,7 @@ textarea.ca-expression-input {
   font-weight: 600;
 }
 
-.ca-resolved-value { color: var(--Colors-Text-Body-Strong); min-width: 0; }
+.ca-resolved-value { color: var(--Colors-Text-Body-Strong); min-width: 0; white-space: pre-wrap; }
 
 .ca-resolved-error { background: var(--Colors-Alert-Error-Lighter); border-left-color: var(--Colors-Alert-Error-Default); }
 .ca-resolved-error .ca-resolved-label,

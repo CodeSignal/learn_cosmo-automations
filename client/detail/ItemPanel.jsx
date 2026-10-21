@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Segmented } from '../ui/primitives.jsx';
 import { Icon } from '../ui/Icon.jsx';
-import { PATH_MIME } from './ExpressionInput.jsx';
+import { PATH_MIME } from './expression.mjs';
 
 /**
  * Input / output item panel, in three views.

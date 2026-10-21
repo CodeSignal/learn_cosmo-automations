@@ -68,6 +68,7 @@ const PATHS = {
   'chevron-down': <path d="M4 6l4 4 4-4" />,
   'chevron-up': <path d="M4 10l4-4 4 4" />,
   'chevron-right': <path d="M6 4l4 4-4 4" />,
+  'chevron-left': <path d="M10 4 6 8l4 4" />,
   'arrow-left': <path d="M13 8H3.5M7.5 4 3.5 8l4 4" />,
   'panel-left': (
     <>
@@ -111,6 +112,7 @@ const PATHS = {
       <path d="M8.6 7.2l4.2 5M12.8 7.2l-4.2 5" />
     </>
   ),
+  expand: <path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" />,
   stack: (
     <>
       <path d="M8 2.4 13.6 5.2 8 8 2.4 5.2Z" />
