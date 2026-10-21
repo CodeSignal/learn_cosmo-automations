@@ -251,6 +251,8 @@ export function NodeDetail({
       items={inputItems}
       note={inputNote}
       onInsertPath={insertPath}
+      // Split Out is the answer the hint points to, so it would be advice to add itself.
+      listHint={node.type !== 'splitOut'}
       empty={isTrigger
         ? {
           title: 'This is a trigger',

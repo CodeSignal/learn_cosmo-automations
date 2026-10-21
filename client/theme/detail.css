@@ -425,6 +425,14 @@ textarea.ca-expression-input {
   color: var(--Colors-Text-Body-Lighter);
 }
 
+.ca-schema-hint {
+  margin-bottom: var(--UI-Spacing-spacing-xs);
+  padding: var(--UI-Spacing-spacing-xs) var(--UI-Spacing-spacing-s);
+  border-radius: var(--UI-Radius-radius-xs);
+  color: var(--Colors-Text-Body-Medium);
+  background: var(--Colors-Emphasis-Primary-Subtle);
+}
+
 .ca-schema-row {
   display: flex;
   align-items: center;

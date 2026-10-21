@@ -15,7 +15,7 @@ import { PATH_MIME } from './ExpressionInput.jsx';
  *  · JSON   — the raw payload of every item.
  */
 export function ItemPanel({
-  side, title, items, empty, onInsertPath, error, note,
+  side, title, items, empty, onInsertPath, error, note, listHint = true,
 }) {
   const [view, setView] = useState('schema');
   const list = items || [];
@@ -61,7 +61,7 @@ export function ItemPanel({
         ) : null}
 
         {list.length && view === 'schema' ? (
-          <SchemaView items={list} onInsertPath={onInsertPath} draggable={side === 'input'} />
+          <SchemaView items={list} onInsertPath={onInsertPath} draggable={side === 'input'} listHint={listHint} />
         ) : null}
         {list.length && view === 'table' ? <TableView items={list} /> : null}
         {list.length && view === 'json' ? <JsonView items={list} /> : null}
@@ -85,15 +85,38 @@ function EmptyState({ title, text, action }) {
   );
 }
 
-function SchemaView({ items, onInsertPath, draggable }) {
+function SchemaView({ items, onInsertPath, draggable, listHint }) {
   const leaves = collectLeaves(items[0] ? items[0].json : {});
+  const list = draggable && listHint && items.length === 1 ? listInside(items[0].json) : null;
 
   return (
     <div className="ca-schema">
+      {/*
+        On the input side, say what `$json` is. The paths below are written as
+        `$json.…`, and without this it is not obvious that `$json` means the one
+        item the node is working on — each of them in turn, not all of them.
+      */}
       <p className="ca-schema-caption body-xxsmall">
-        {items.length > 1 ? `Fields of item 1 of ${items.length}` : 'Fields'}
+        {draggable
+          ? (items.length > 1
+            ? `$json is the item being processed · fields of item 1 of ${items.length}`
+            : '$json is this item · fields')
+          : (items.length > 1 ? `Fields of item 1 of ${items.length}` : 'Fields')}
         {draggable && onInsertPath ? ' · click to insert, or drag onto a field' : ''}
       </p>
+      {/*
+        One item holding a list is the usual first stumble: the schema shows the
+        list's first entry as `list[0].field`, and dragging that inserts a path
+        that reads the first entry for ever. Say so, and name the fix.
+      */}
+      {list ? (
+        <p className="ca-schema-hint body-xxsmall">
+          {`This is one item holding a list: ${list.field} has ${list.length} ${list.length === 1 ? 'entry' : 'entries'}. `}
+          {`A path like ${list.field}[0]${list.example ? `.${list.example}` : ''} always reads the first entry. `}
+          {`To handle each entry on its own, add a Split Out node on ${list.field} before this one: `}
+          {`every entry becomes its own item, and $json${list.example ? `.${list.example}` : ''} reads the current one.`}
+        </p>
+      ) : null}
       {leaves.length === 0 ? (
         <p className="ca-pane-empty body-xxsmall">This item has no fields.</p>
       ) : leaves.map((leaf) => {
@@ -111,7 +134,9 @@ function SchemaView({ items, onInsertPath, draggable }) {
               event.dataTransfer.setData('text/plain', `{{ ${path} }}`);
               event.dataTransfer.effectAllowed = 'copy';
             } : undefined}
-            title={onInsertPath ? `Insert {{ ${path} }}` : leaf.path}
+            title={onInsertPath
+              ? `Insert {{ ${path} }}${/\[\d+\]/.test(leaf.path) ? ' — reads only that one entry of the list' : ''}`
+              : leaf.path}
           >
             <span className={`ca-schema-type ca-schema-type-${leaf.kind} ca-mono`} aria-label={leaf.type}>
               {TYPE_MARK[leaf.kind] || '·'}
@@ -169,6 +194,21 @@ function JsonView({ items }) {
       <pre className="ca-json body-xxsmall">{JSON.stringify(item.json, null, 2)}</pre>
     </div>
   ));
+}
+
+/**
+ * The first top-level field holding a list of objects, with a field name from
+ * its first entry to use in an example — or null.
+ */
+function listInside(json) {
+  if (!json || typeof json !== 'object') return null;
+  for (const [field, value] of Object.entries(json)) {
+    if (Array.isArray(value) && value.length && value[0] !== null && typeof value[0] === 'object') {
+      const example = Object.keys(value[0]).find((k) => value[0][k] === null || typeof value[0][k] !== 'object');
+      return { field, length: value.length, example: example || null };
+    }
+  }
+  return null;
 }
 
 const TYPE_MARK = {
