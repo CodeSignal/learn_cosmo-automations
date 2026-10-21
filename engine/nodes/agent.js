@@ -54,6 +54,21 @@ function asText(answer) {
   return JSON.stringify(answer);
 }
 
+/**
+ * An answer as a list, for the Item List Output Parser: a recorded list as is,
+ * otherwise the text split on the parser's separator, with list markers
+ * (`- `, `* `, `1. `, `2) `) and blank entries dropped, capped at its maximum.
+ */
+function asList(answer, format) {
+  const separator = String(format.separator || '\\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  const raw = Array.isArray(answer) ? answer.map((e) => (typeof e === 'string' ? e : JSON.stringify(e)))
+    : asText(answer).split(separator || '\n');
+  const entries = raw
+    .map((e) => String(e).replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
+    .filter(Boolean);
+  return format.max > 0 ? entries.slice(0, format.max) : entries;
+}
+
 module.exports = (register) => {
   register({
     type: 'agent',
@@ -106,8 +121,10 @@ module.exports = (register) => {
       const items = input[0] || [];
       const item = items[0] || null;
 
-      // Fields only when a Structured Output Parser is attached; otherwise text.
-      const fields = ctx.outputParser ? ctx.outputParser.fields : null;
+      // The attached output parser decides the answer's shape; none means text.
+      const format = ctx.outputParser;
+      if (format && format.error) throw new Error(format.error);
+      const fields = format && format.kind === 'fields' ? format.fields : null;
       if (fields && !fields.length) {
         throw new Error(
           'The Structured Output Parser attached to this agent names no fields. Add the '
@@ -121,7 +138,8 @@ module.exports = (register) => {
       const res = await ctx.agent({
         input: item ? item.json : {},
         model: p.model,
-        outputFields: fields,
+        outputFields: fields || [],
+        format,
         perItem,
         // Not used to match — never the prompt — only recorded on a fixture
         // miss, so the authoring tool can ask a real model the same question.
@@ -130,6 +148,15 @@ module.exports = (register) => {
       });
 
       if (!res.ok) throw new Error(res.explanation);
+
+      // A list becomes one item per entry: one call, many items out.
+      if (format && format.kind === 'list') {
+        const entries = asList(res.output, format);
+        ctx.note({ model: p.model || '(unset)', list: entries.length });
+        return [entries.map((entry) => (perItem
+          ? makeItem({ ...deepClone(item ? item.json : {}), output: entry }, { pairedItem: item ? item.pairedItem : undefined })
+          : makeItem({ output: entry })))];
+      }
 
       let output;
       if (!fields) {
@@ -261,17 +288,97 @@ module.exports = (register) => {
     outputs: [{ name: 'parser' }],
     parserOutput: true,
     mode: 'runOnceForAllItems',
-    defaults: { fields: [] },
+    defaults: { mode: 'fields', fields: [], jsonExample: '{\n  "label": "text",\n  "score": 1\n}', jsonSchema: '' },
     params: [
       {
-        name: 'fields', label: 'Fields', type: 'fieldNames',
+        name: 'mode', label: 'Define By', type: 'options', options: ['fields', 'example', 'schema'],
+        hint: 'fields: a list of names. example: a sample answer, whose keys and value '
+          + 'types become the schema. schema: a JSON Schema, for types and nesting.',
+      },
+      {
+        name: 'fields', label: 'Fields', type: 'fieldNames', showFor: { mode: 'fields' },
         hint: 'The fields the model must return. The agent puts them on the item as '
           + '$json.output.<field>, so later nodes can read and branch on them.',
+      },
+      {
+        name: 'jsonExample', label: 'JSON Example', type: 'string', multiline: true, mono: true,
+        showFor: { mode: 'example' },
+        placeholder: '{ "label": "text", "score": 1 }',
+        hint: 'A sample answer. Its top-level keys are the fields, and their values set the types.',
+      },
+      {
+        name: 'jsonSchema', label: 'JSON Schema', type: 'string', multiline: true, mono: true,
+        showFor: { mode: 'schema' },
+        placeholder: '{ "type": "object", "properties": { "label": { "type": "string" } }, "required": ["label"] }',
+        hint: 'A JSON Schema object. Its properties are the fields.',
       },
     ],
 
     run: async () => {
       throw new Error('A Structured Output Parser does not run on its own. Attach it to an AI Agent.');
+    },
+  });
+
+  /**
+   * The Item List Output Parser: the answer is a list, and each entry becomes its
+   * own item — one model call, many items out, as when extracting every action
+   * item from one email.
+   */
+  register({
+    type: 'listOutputParser',
+    label: 'Item List Output Parser',
+    group: 'ai',
+    icon: 'split',
+    description: 'Makes an AI agent answer with a list, one item per entry.',
+    inputs: 0,
+    outputs: [{ name: 'parser' }],
+    parserOutput: true,
+    mode: 'runOnceForAllItems',
+    defaults: { maxItems: 0, separator: '\\n' },
+    params: [
+      {
+        name: 'maxItems', label: 'Max Items', type: 'number',
+        hint: 'Keep at most this many entries. 0 keeps them all.',
+      },
+      {
+        name: 'separator', label: 'Separator', type: 'string',
+        hint: 'What separates entries in a text answer. \\n is a new line.',
+      },
+    ],
+
+    run: async () => {
+      throw new Error('An Item List Output Parser does not run on its own. Attach it to an AI Agent.');
+    },
+  });
+
+  /**
+   * The Auto-fixing Output Parser: wraps another parser, attached to its own
+   * Output Parser port. An answer that does not fit that parser goes back to a
+   * model once, with the format, to be fixed. A fix is a real model call, so it
+   * shows up in the calls — the cost of a format the agent's model keeps missing.
+   */
+  register({
+    type: 'autoFixingOutputParser',
+    label: 'Auto-fixing Output Parser',
+    group: 'ai',
+    icon: 'pencil',
+    description: 'Wraps another output parser and has a model fix answers that do not fit it.',
+    inputs: 0,
+    outputs: [{ name: 'parser' }],
+    parserOutput: true,
+    // The parser it wraps attaches here.
+    parserInput: true,
+    mode: 'runOnceForAllItems',
+    defaults: { model: '' },
+    params: [
+      {
+        name: 'model', label: 'Fixing Model', type: 'options', options: [],
+        hint: 'The model asked to fix an answer that does not fit. Only called when one does not.',
+      },
+    ],
+
+    run: async () => {
+      throw new Error('An Auto-fixing Output Parser does not run on its own. Attach it to an AI Agent.');
     },
   });
 };

@@ -94,18 +94,17 @@ function resolveAgentCall(scenario, call) {
     );
   }
 
-  // Text for an agent that answers in text, an object of fields for one with an
-  // output parser.
+  // Text for an agent that answers in text, an object of fields for one with a
+  // Structured Output Parser, a list for one with an Item List Output Parser.
   const output = hit.respond === undefined ? {} : hit.respond;
-  const isText = typeof output === 'string';
-  const isFields = output !== null && typeof output === 'object' && !Array.isArray(output);
-  if (!isText && !isFields) {
-    return deny(`Fixture "${hit.id || '(unnamed)'}" responds with ${Array.isArray(output) ? 'a list' : `a ${typeof output}`}, not text or an object of fields.`);
+  if (output === null || !['string', 'object'].includes(typeof output)) {
+    return deny(`Fixture "${hit.id || '(unnamed)'}" responds with a ${output === null ? 'null' : typeof output}, not text, a list or an object of fields.`);
   }
 
   // The tool calls the model made before answering — replayed by the scheduler.
   const calls = Array.isArray(hit.calls) ? hit.calls : [];
-  return { ok: true, output, fixtureId: hit.id || null, calls };
+  // `fixed`: what an Auto-fixing Output Parser's model turned a misshapen answer into.
+  return { ok: true, output, fixtureId: hit.id || null, calls, ...(hit.fixed !== undefined ? { fixed: hit.fixed } : {}) };
 }
 
 /** A short, honest description of the item, for an error someone has to act on. */

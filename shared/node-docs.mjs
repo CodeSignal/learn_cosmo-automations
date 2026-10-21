@@ -342,7 +342,10 @@ export const NODE_DOCS = {
       + 'severity, route on a category, check a decision. If a person only reads the '
       + 'answer, text is fine and you do not need it.',
     params: [
+      { name: 'mode', text: 'How the fields are defined: `fields` (a list of names), `example` (a sample answer — its keys are the fields and its values set the types) or `schema` (a JSON Schema, for types and nesting).' },
       { name: 'fields', text: 'The fields the model must return. The agent puts them on the item as `$json.output.<field>`. Ask for them in the prompt too.' },
+      { name: 'jsonExample', text: 'A sample answer, as JSON. `{ "label": "billing", "score": 4 }` asks for a text `label` and a whole-number `score`.' },
+      { name: 'jsonSchema', text: 'A JSON Schema object. Its `properties` are the fields; use it when you need types or nested objects the example cannot express.' },
     ],
     examples: [
       {
@@ -360,7 +363,62 @@ export const NODE_DOCS = {
       'Name the same fields in the prompt. The parser says what shape to return; the '
       + 'prompt says what the fields mean.',
     ],
-    seeAlso: ['agent', 'agentTool'],
+    seeAlso: ['agent', 'agentTool', 'listOutputParser', 'autoFixingOutputParser'],
+  },
+
+  listOutputParser: {
+    summary: 'Makes an AI agent answer with a list, and turns each entry into its own '
+      + 'item — one model call, many items out.',
+    mode: 'It does not run as a step. The agent it is attached to splits each answer '
+      + 'into items: once per item, every input item can become several.',
+    when: 'Use it when one question has several answers that each need handling on their '
+      + 'own: every action item in an email, every product a review mentions.',
+    params: [
+      { name: 'maxItems', text: 'Keep at most this many entries per answer. 0 keeps them all.' },
+      { name: 'separator', text: 'What separates entries when the answer is text. `\\n`, a new line, is the default; list markers like `- ` and `1. ` are removed.' },
+    ],
+    examples: [
+      {
+        label: 'Action items from one email',
+        code: '// 1 item in\n{ "email": "E-7", "body": "…" }\n\n'
+          + '// 3 items out\n{ "email": "E-7", "body": "…", "output": "Send the contract" }\n'
+          + '{ "email": "E-7", "body": "…", "output": "Book the room" }\n'
+          + '{ "email": "E-7", "body": "…", "output": "Call Dana back" }',
+      },
+    ],
+    gotchas: [
+      'Each entry is text in `$json.output`, alongside the item it came from. For fields '
+      + 'per entry, split the list first and then use a Structured Output Parser.',
+      'More items out than in is the point here, not a bug. The counts on the canvas show it.',
+    ],
+    seeAlso: ['agent', 'outputParser', 'splitOut'],
+  },
+
+  autoFixingOutputParser: {
+    summary: 'Wraps another output parser, and has a model fix any answer that does not '
+      + 'fit it before the workflow sees it.',
+    mode: 'It does not run as a step. It only calls its model when an answer does not '
+      + 'fit — a well-shaped answer passes straight through.',
+    when: 'Use it when the agent\'s model is cheap or chatty and sometimes misses the '
+      + 'format. Attach the parser it should enforce to its own Output Parser port, and '
+      + 'attach it to the agent.',
+    params: [
+      { name: 'model', text: 'The model asked to fix an answer. It sees the bad answer and the required format, nothing else, so a small model is usually enough.' },
+    ],
+    examples: [
+      {
+        label: 'Wiring',
+        code: 'Structured Output Parser → Auto-fixing Output Parser → AI Agent\n'
+          + '            (its Output Parser port)        (the agent\'s Output Parser port)',
+      },
+    ],
+    gotchas: [
+      'A fix is a model call of its own, and it shows in the calls. If it fixes every '
+      + 'answer, the agent\'s prompt is the problem — tighten it rather than paying twice.',
+      'It needs a parser attached to it. On its own it has no format to fix answers towards.',
+      'One is enough: it cannot wrap another Auto-fixing Output Parser.',
+    ],
+    seeAlso: ['outputParser', 'listOutputParser', 'agent'],
   },
 
   approval: {

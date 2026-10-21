@@ -38,11 +38,34 @@ statement says which fields it needs but the candidate does the wiring. Grade th
 parser like any other node: `connected` from `outputParser` to `agent`, and
 `expressionContains` on its `fields`.
 
+Three parsers, one per agent at a time:
+
+| Parser | The answer | On the item |
+|---|---|---|
+| **Structured Output Parser** | named fields, defined by a list, a JSON example (its keys and value types) or a JSON Schema | `output: { … }` |
+| **Item List Output Parser** | a list — text split on a separator (list markers removed), or a recorded list — optionally capped | one item per entry, each with `output: "…"` |
+| **Auto-fixing Output Parser** | whatever the parser attached to *its* Output Parser port asks for; an answer that does not fit goes to its model once to be fixed | as the wrapped parser |
+
 A fixture's `respond` follows the agent: **text** for an agent without a parser,
-an **object of fields** for one with. An object given to an agent that answers in
-text reaches it as JSON text, as a real model would answer; text given to an agent
-whose parser asks for fields is an error that says so. An AI Agent Tool works the
-same way: text back to its parent by default, fields with a parser of its own.
+an **object of fields** for a Structured Output Parser, a **list** (or text) for an
+Item List Output Parser. An object given to an agent that answers in text reaches
+it as JSON text, as a real model would answer; text given to an agent whose parser
+asks for fields is an error that says so. An AI Agent Tool works the same way:
+text back to its parent by default, fields or a list with a parser of its own.
+
+To show an Auto-fixing Output Parser at work, record a misshapen `respond` and
+the answer its model fixes it into as `fixed`:
+
+```jsonc
+{ "id": "classify-T-04", "when": { "input": { "ticket": "T-04" } },
+  "respond": "billing, severity 3",
+  "fixed": { "category": "billing", "severity": 3 } }
+```
+
+The fix is a model call of its own — in `aiCalls` with `fixer: true`, on the
+fixer's model — so `aiCalled` can show what a format the model keeps missing
+costs. Without a fixer the same answer is an error; with one but no `fixed`, the
+error says there was nothing to fix it with.
 
 ## The engine can only replay
 

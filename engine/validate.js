@@ -522,9 +522,11 @@ async function validateScenario(scenario, options = {}) {
 
         if (fixture.respond === undefined) {
           err(`${where} has no \`respond\`, so the agent would receive nothing`);
-        } else if (typeof fixture.respond !== 'string' && (fixture.respond === null
-          || typeof fixture.respond !== 'object' || Array.isArray(fixture.respond))) {
-          err(`${where}.respond must be text (for an agent that answers in text) or an object of output fields (for one with an output parser)`);
+        } else if (fixture.respond === null || !['string', 'object'].includes(typeof fixture.respond)) {
+          err(`${where}.respond must be text (no output parser), an object of fields (Structured Output Parser) or a list (Item List Output Parser)`);
+        }
+        if (fixture.fixed !== undefined && (fixture.fixed === null || !['string', 'object'].includes(typeof fixture.fixed))) {
+          err(`${where}.fixed must be the answer an Auto-fixing Output Parser's model returns: an object of fields or a list`);
         }
 
         const when = fixture.when;

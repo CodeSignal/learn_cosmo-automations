@@ -460,18 +460,40 @@ async function executeWorkflow(scenario, graph, options = {}) {
   /** parser node id -> how many answers it shaped. */
   const parserUse = new Map();
   /**
-   * The fields an agent must answer in: its attached Structured Output Parser's,
-   * or null when it has none (or a disabled one) and answers in text.
+   * The shape an agent must answer in, from the output parser attached to it:
+   *
+   *   null                                   no parser (or a disabled one): text
+   *   { kind: 'fields', fields, schema }     Structured Output Parser
+   *   { kind: 'list', separator, max }       Item List Output Parser
+   *   { ...wrapped, fixer: { node, model } } Auto-fixing Output Parser, around
+   *                                          the parser attached to it
+   *   { error }                              a parser that cannot work as wired
    */
-  const parserFieldsFor = (agentNode, json) => {
-    const parser = parserOf.get(agentNode.id);
+  const formatFor = (owner, json, depth = 0) => {
+    const parser = parserOf.get(owner.id);
     if (!parser || parser.disabled) return null;
     const params = resolveParameters(parser.parameters || {}, {
       json, itemIndex: 0, items: [makeItem(json)], nodeOutputs: nodeOutputsByName,
       vars: scenario.vars || {}, env: scenario.env || {}, now, timeoutMs: limits.maxExpressionMs,
     }).value;
     parserUse.set(parser.id, (parserUse.get(parser.id) || 0) + 1);
-    return (Array.isArray(params.fields) ? params.fields : []).map((f) => String(f).trim()).filter(Boolean);
+
+    if (parser.type === 'listOutputParser') {
+      const max = Number(params.maxItems);
+      return { kind: 'list', separator: params.separator === undefined ? '\\n' : String(params.separator), max: max > 0 ? Math.floor(max) : 0 };
+    }
+    if (parser.type === 'autoFixingOutputParser') {
+      if (depth > 0) {
+        return { error: `"${parser.name}" wraps another Auto-fixing Output Parser. One is enough: attach the parser it should fix to it directly.` };
+      }
+      const wrapped = formatFor(parser, json, depth + 1);
+      if (!wrapped) {
+        return { error: `"${parser.name}" has no parser to fix answers for. Attach a Structured or Item List Output Parser to its Output Parser port.` };
+      }
+      if (wrapped.error) return wrapped;
+      return { ...wrapped, fixer: { node: parser, model: String(params.model || '') } };
+    }
+    return structuredFormat(parser, params);
   };
   /*
    * `recorded` marks a live run whose agent fell back to its recording: these
@@ -509,11 +531,12 @@ async function executeWorkflow(scenario, graph, options = {}) {
       use.calls += 1;
       use.via.add(parent.name);
 
-      // Fields only with a Structured Output Parser attached; otherwise text.
-      const fields = parserFieldsFor(hit.node, input);
-      const problem = fields && !fields.length
-        ? 'has an output parser that names no fields'
-        : (!String(hit.params.userPrompt || '').trim() ? 'has an empty user prompt' : null);
+      // The shape its output parser asks for; no parser means text.
+      const format = formatFor(hit.node, input);
+      const fields = format && format.kind === 'fields' ? format.fields : null;
+      const problem = format && format.error ? format.error.replace(/\.$/, '')
+        : (fields && !fields.length ? 'has an output parser that names no fields'
+          : (!String(hit.params.userPrompt || '').trim() ? 'has an empty user prompt' : null));
       if (problem) {
         use.error = `"${hit.node.name}" ${problem}.`;
         return `Subagent "${hit.node.name}" ${problem}.`;
@@ -540,7 +563,12 @@ async function executeWorkflow(scenario, graph, options = {}) {
         use.error = res.explanation;
         return `Subagent "${hit.node.name}": ${res.explanation}`;
       }
-      const shaped = res.output && typeof res.output === 'object' ? res.output : {};
+      const fixedRes = await fixIfNeeded({ owner: hit.node, format, input, res, perItem: true, live: false });
+      if (!fixedRes.ok) {
+        use.error = fixedRes.explanation;
+        return `Subagent "${hit.node.name}": ${fixedRes.explanation}`;
+      }
+      const shaped = fixedRes.output && typeof fixedRes.output === 'object' ? fixedRes.output : {};
       if (fields && fields.every((f) => shaped[f] === undefined)) {
         use.error = `returned none of the fields its output parser asks for (${fields.join(', ')})`;
         return `Subagent "${hit.node.name}" returned none of the fields its output parser asks for (${fields.join(', ')}). `
@@ -627,6 +655,45 @@ async function executeWorkflow(scenario, graph, options = {}) {
     .filter((t) => t.name);
 
   /**
+   * The Auto-fixing Output Parser at work. An answer that fits the format (or a
+   * format with no fixer) passes through. One that does not goes to the fixer's
+   * model once: live when the answer was live, otherwise the fixture's `fixed`
+   * answer — what that model said when the task was recorded. Either way it is a
+   * model call of its own, so it is in `aiCalls`, marked `fixer`.
+   */
+  const fixIfNeeded = async ({ owner, format, input, res, perItem, live: wasLive }) => {
+    if (!format || !format.fixer || answerFits(format, res.output)) return { ok: true, output: res.output };
+    const fixer = format.fixer.node;
+    const base = {
+      node: fixer.name, via: owner.name, model: format.fixer.model || null, perItem: Boolean(perItem), fixer: true,
+    };
+    if (wasLive && liveOn) {
+      const answer = await askLive({
+        model: format.fixer.model,
+        systemPrompt: 'You fix answers so they match a required format. Keep the meaning; change only the form.',
+        userPrompt: `This answer does not match the required format:\n\n${typeof res.output === 'string' ? res.output : JSON.stringify(res.output)}\n\nReturn the same answer in the required format.${listInstruction(format)}`,
+        input,
+        outputFields: format.kind === 'fields' ? format.fields : [],
+        schema: format.kind === 'fields' ? format.schema : undefined,
+        tools: [],
+      });
+      trace.aiCalls.push({ ...base, fixture: null, denied: !answer.ok, ...liveFields(answer) });
+      if (answer.ok && answerFits(format, answer.output)) return { ok: true, output: answer.output };
+      return { ok: false, explanation: `The answer did not fit the output parser, and "${fixer.name}" could not fix it live.` };
+    }
+    const fixed = res.fixed;
+    trace.aiCalls.push({ ...base, fixture: res.fixtureId || null, denied: fixed === undefined });
+    if (fixed === undefined || !answerFits(format, fixed)) {
+      return {
+        ok: false,
+        explanation: `The answer did not fit the output parser, and "${fixer.name}" could not fix it: `
+          + 'the task records no fixed answer for this input.',
+      };
+    }
+    return { ok: true, output: fixed };
+  };
+
+  /**
    * A live model called one of its tools. Run that subagent — live, with its own
    * tools — and hand back its answer, or its recorded answer when live fails.
    * Same checks, same bookkeeping and the same depth/circle bound as replay.
@@ -641,10 +708,11 @@ async function executeWorkflow(scenario, graph, options = {}) {
     use.calls += 1;
     use.via.add(parent.name);
 
-    const fields = parserFieldsFor(hit.node, input);
-    const problem = fields && !fields.length
-      ? 'has an output parser that names no fields'
-      : (!String(hit.params.userPrompt || '').trim() ? 'has an empty user prompt' : null);
+    const format = formatFor(hit.node, input);
+    const fields = format && format.kind === 'fields' ? format.fields : null;
+    const problem = format && format.error ? format.error.replace(/\.$/, '')
+      : (fields && !fields.length ? 'has an output parser that names no fields'
+        : (!String(hit.params.userPrompt || '').trim() ? 'has an empty user prompt' : null));
     if (problem) {
       use.error = `"${hit.node.name}" ${problem}.`;
       return { error: use.error };
@@ -657,9 +725,10 @@ async function executeWorkflow(scenario, graph, options = {}) {
     const res = await askLive({
       model: hit.params.model,
       systemPrompt: String(hit.params.systemPrompt || ''),
-      userPrompt: String(hit.params.userPrompt || ''),
+      userPrompt: String(hit.params.userPrompt || '') + listInstruction(format),
       input,
       outputFields: fields || [],
+      schema: format && format.kind === 'fields' ? format.schema : undefined,
       tools: liveToolsFor(hit.node),
       runTool: (n, a) => runToolLive(hit.node, n, a, [...chain, hit.node.id]),
     });
@@ -667,8 +736,10 @@ async function executeWorkflow(scenario, graph, options = {}) {
 
     if (res.ok) {
       trace.aiCalls.push({ ...base, fixture: null, denied: false, outputFields: fields || [], ...liveFields(res) });
+      const fixed = await fixIfNeeded({ owner: hit.node, format, input, res, perItem: true, live: true });
+      if (!fixed.ok) { use.error = fixed.explanation; return { error: fixed.explanation }; }
       use.ok += 1;
-      return res.output;
+      return fixed.output;
     }
 
     const rec = resolveAgentCall(scenario, {
@@ -686,8 +757,10 @@ async function executeWorkflow(scenario, graph, options = {}) {
       const nested = await runToolCalls(hit.node, rec.calls, [...chain, hit.node.id], true);
       if (nested) { use.error = nested; return { error: nested }; }
     }
+    const fixedRec = await fixIfNeeded({ owner: hit.node, format, input, res: rec, perItem: true, live: false });
+    if (!fixedRec.ok) { use.error = fixedRec.explanation; return { error: fixedRec.explanation }; }
     use.ok += 1;
-    return rec.output;
+    return fixedRec.output;
   };
 
   /**
@@ -928,9 +1001,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
     const makeCtx = (json, itemIndex, items, params) => ({
       params,
       // An agent's answer format: its parser's fields, or null for text.
-      outputParser: def.parserInput
-        ? (() => { const fields = parserFieldsFor(node, json); return fields ? { fields } : null; })()
-        : null,
+      outputParser: def.parserInput ? formatFor(node, json) : null,
       now,
       credential,
       credentialTypes: credTypes,
@@ -959,9 +1030,10 @@ async function executeWorkflow(scenario, graph, options = {}) {
           const answer = await askLive({
             model: call.model,
             systemPrompt: call.systemPrompt,
-            userPrompt: call.userPrompt,
+            userPrompt: call.userPrompt + listInstruction(call.format),
             input: call.input,
             outputFields: call.outputFields || [],
+            schema: call.format && call.format.kind === 'fields' ? call.format.schema : undefined,
             tools: liveToolsFor(node),
             runTool: (name, args) => runToolLive(node, name, args, [node.id]),
           });
@@ -975,7 +1047,11 @@ async function executeWorkflow(scenario, graph, options = {}) {
               outputFields: call.outputFields || [],
               ...liveFields(answer),
             });
-            return { ok: true, output: answer.output, fixtureId: null, calls: [] };
+            const fixed = await fixIfNeeded({
+              owner: node, format: call.format, input: call.input, res: answer, perItem: call.perItem, live: true,
+            });
+            if (!fixed.ok) return { ok: false, denied: false, explanation: fixed.explanation };
+            return { ok: true, output: fixed.output, fixtureId: null, calls: [] };
           }
           liveMiss = answer;
         }
@@ -994,6 +1070,13 @@ async function executeWorkflow(scenario, graph, options = {}) {
         if (res.ok && res.calls.length) {
           const failed = await runToolCalls(node, res.calls, [node.id], Boolean(liveMiss));
           if (failed) return { ok: false, denied: false, explanation: failed };
+        }
+        if (res.ok) {
+          const fixed = await fixIfNeeded({
+            owner: node, format: call.format, input: call.input, res, perItem: call.perItem, live: false,
+          });
+          if (!fixed.ok) return { ok: false, denied: false, explanation: fixed.explanation };
+          return { ...res, output: fixed.output };
         }
         return res;
       },
@@ -1358,6 +1441,65 @@ function missedRequest(res, call) {
  * be written by other means, and an agent that can reach itself through its
  * tools is the one way a replayed workflow could recurse without end.
  */
+/**
+ * A Structured Output Parser's format: its fields and a JSON Schema for them,
+ * from a field list, a JSON example (keys are the fields, values set the types)
+ * or a JSON Schema.
+ */
+function structuredFormat(parser, params) {
+  const mode = params.mode || 'fields';
+  if (mode === 'example' || mode === 'schema') {
+    const source = mode === 'example' ? params.jsonExample : params.jsonSchema;
+    let parsed;
+    try {
+      parsed = JSON.parse(String(source || ''));
+    } catch (err) {
+      return { error: `The JSON ${mode} in "${parser.name}" is not valid JSON (${err.message}).` };
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { error: `The JSON ${mode} in "${parser.name}" must be an object.` };
+    }
+    if (mode === 'example') {
+      return { kind: 'fields', fields: Object.keys(parsed), schema: schemaOf(parsed) };
+    }
+    const properties = parsed.properties && typeof parsed.properties === 'object' ? parsed.properties : {};
+    return { kind: 'fields', fields: Object.keys(properties), schema: { type: 'object', ...parsed } };
+  }
+  const fields = (Array.isArray(params.fields) ? params.fields : []).map((f) => String(f).trim()).filter(Boolean);
+  return {
+    kind: 'fields',
+    fields,
+    schema: { type: 'object', properties: Object.fromEntries(fields.map((f) => [f, { description: f }])), required: fields },
+  };
+}
+
+/** A JSON Schema describing a sample value. */
+function schemaOf(value) {
+  if (Array.isArray(value)) return value.length ? { type: 'array', items: schemaOf(value[0]) } : { type: 'array' };
+  if (value === null) return {};
+  if (typeof value === 'object') {
+    const keys = Object.keys(value);
+    return { type: 'object', properties: Object.fromEntries(keys.map((k) => [k, schemaOf(value[k])])), required: keys };
+  }
+  if (typeof value === 'number') return { type: Number.isInteger(value) ? 'integer' : 'number' };
+  return { type: typeof value };
+}
+
+/** Whether an answer has the shape a format asks for. */
+function answerFits(format, output) {
+  if (!format) return true;
+  if (format.kind === 'list') return output !== undefined && output !== null && output !== '';
+  return Boolean(output && typeof output === 'object' && !Array.isArray(output)
+    && format.fields.some((f) => output[f] !== undefined));
+}
+
+/** What a live model is told when the answer must be a list. */
+function listInstruction(format) {
+  if (!format || format.kind !== 'list') return '';
+  const max = format.max > 0 ? ` Give at most ${format.max} entries.` : '';
+  return `\n\nAnswer with a list: one entry per line, nothing else.${max}`;
+}
+
 function toolCycle(toolsOf, byId) {
   const state = new Map(); // id -> 1 visiting, 2 done
   const stack = [];

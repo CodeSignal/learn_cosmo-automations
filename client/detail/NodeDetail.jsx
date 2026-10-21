@@ -51,7 +51,10 @@ export function NodeDetail({
   const fromLastRun = !(record && record.inputSample) && Boolean(inputFallback && inputFallback.length);
   const inputItems = record && record.inputSample ? record.inputSample : (inputFallback || []);
   const outputItems = hasRun ? (record.output || []) : [];
-  const isTrigger = definition.inputs === 0;
+  // Tools and output parsers have no data input either, but they are not
+  // triggers: they attach to an agent and work when it runs.
+  const isSubNode = Boolean(definition.toolOutput || definition.parserOutput);
+  const isTrigger = definition.inputs === 0 && !isSubNode;
 
   // Every node's output so far, so `$node["Name"]` previews resolve.
   const nodeOutputs = useMemo(() => {
@@ -83,12 +86,14 @@ export function NodeDetail({
 
   // `showFor: { mode: 'append' }` shows a field for one value; an array shows it
   // for any of several, which Remove Duplicates needs.
+  // An unset parameter counts as its default, so a node saved before the
+  // parameter existed still shows the fields for its default mode.
+  const valueOf = (key) => (node.parameters[key] !== undefined
+    ? node.parameters[key] : (definition.defaults || {})[key]);
   const visibleParams = (definition.params || []).filter((descriptor) => {
     if (!descriptor.showFor) return true;
     return Object.entries(descriptor.showFor).every(([key, expected]) => (
-      Array.isArray(expected)
-        ? expected.includes(node.parameters[key])
-        : node.parameters[key] === expected
+      Array.isArray(expected) ? expected.includes(valueOf(key)) : valueOf(key) === expected
     ));
   });
 
@@ -227,7 +232,14 @@ export function NodeDetail({
       items={outputItems}
       note={outputNote}
       error={record && record.status === 'error' ? record.error : null}
-      empty={hasRun
+      empty={isSubNode
+        ? {
+          title: 'No items of its own',
+          text: definition.toolOutput
+            ? 'Its answers go back to the agent that called it, and show in that agent\'s run.'
+            : 'What it shapes shows in the agent\'s output, as $json.output.',
+        }
+        : hasRun
         ? { title: 'No output', text: 'This node produced no items on its first output.' }
         : {
           title: 'No output yet',
@@ -259,7 +271,14 @@ export function NodeDetail({
       onInsertPath={insertPath}
       // Split Out is the answer the hint points to, so it would be advice to add itself.
       listHint={node.type !== 'splitOut'}
-      empty={isTrigger
+      empty={isSubNode
+        ? {
+          title: definition.toolOutput ? 'Called by an agent' : 'Attached to an agent',
+          text: definition.toolOutput
+            ? 'No items arrive here. It runs when the agent it is attached to calls it; its $json is what the agent passes in.'
+            : 'No items arrive here. It shapes the answers of the agent it is attached to, every time that agent runs.',
+        }
+        : isTrigger
         ? {
           title: 'This is a trigger',
           text: 'Triggers start the workflow, so nothing arrives here. Its output is what every later node works with.',

@@ -73,7 +73,7 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
     const tools = (call.tools || []).filter((t) => t && t.name && t.name !== RESPOND);
 
     const key = JSON.stringify([modelId, call.systemPrompt, call.userPrompt, call.input,
-      fields, tools.map((t) => [t.name, t.description])]);
+      fields, call.schema || null, tools.map((t) => [t.name, t.description])]);
     if (cache.has(key)) return { ...cache.get(key), cached: true, usage: { prompt: 0, completion: 0 } };
 
     const messages = [];
@@ -97,7 +97,9 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
         function: {
           name: RESPOND,
           description: 'Give your final answer. Call this exactly once, when you are done.',
-          parameters: {
+          // The parser's schema when it has one (from a JSON example or schema),
+          // otherwise every field, untyped.
+          parameters: call.schema || {
             type: 'object',
             properties: Object.fromEntries(fields.map((f) => [f, { description: f }])),
             required: fields,

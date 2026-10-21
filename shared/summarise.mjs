@@ -53,9 +53,21 @@ const SUMMARIES = {
   },
 
   outputParser: (p) => {
-    const fields = (p.fields || []).filter(Boolean);
+    let fields = (p.fields || []).filter(Boolean);
+    if (p.mode === 'example' || p.mode === 'schema') {
+      try {
+        const parsed = JSON.parse(String((p.mode === 'example' ? p.jsonExample : p.jsonSchema) || ''));
+        fields = Object.keys((p.mode === 'example' ? parsed : parsed.properties) || {});
+      } catch {
+        return `${p.mode}: invalid JSON`;
+      }
+    }
     return fields.length ? `→ ${fields.join(', ')}` : 'no fields';
   },
+
+  listOutputParser: (p) => (Number(p.maxItems) > 0 ? `list · at most ${Math.floor(Number(p.maxItems))}` : 'list'),
+
+  autoFixingOutputParser: (p) => `fixes with ${p.model || '(no model)'}`,
 
   filter: describeConditions,
   if: describeConditions,

@@ -364,8 +364,10 @@
   //   "fixtures": [
   //     // A top-level agent. `calls` replays the tool calls the model made
   //     // before answering; each subagent then answers from its own fixture.
-  //     // `respond` is text for an agent that answers in text, or an object of
-  //     // fields for one with a Structured Output Parser attached.
+  //     // `respond` is text for an agent that answers in text, an object of
+  //     // fields for one with a Structured Output Parser, a list for one with an
+  //     // Item List Output Parser. `fixed` is what an Auto-fixing Output
+  //     // Parser's model turns a misshapen `respond` into.
   //     { "id": "decide-R-01", "when": { "input": { "request": "R-01" } },
   //       "calls": [{ "tool": "lookup_order", "input": { "orderId": "O-1001" } }],
   //       "respond": { "decision": "refund" } },
