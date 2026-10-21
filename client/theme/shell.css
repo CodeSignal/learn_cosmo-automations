@@ -475,6 +475,34 @@ button.ca-log-name:hover .ca-log-name-text { text-decoration: underline; }
   flex: 0 0 auto;
 }
 
+/*
+ * The floating version: pinned to the top of the workspace, above an open
+ * node's settings (z-index 30), so a paused run is never hidden.
+ */
+.ca-approval-bar {
+  position: absolute;
+  top: var(--UI-Spacing-spacing-ms);
+  left: 50%;
+  z-index: 40;
+  width: max-content;
+  max-width: min(640px, calc(100% - var(--UI-Spacing-spacing-xxxl)));
+  margin: 0;
+  padding: var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-mxs);
+  gap: var(--UI-Spacing-spacing-ms);
+  box-shadow: 0 10px 28px var(--Colors-Emphasis-Shadow-Medium);
+  transform: translateX(-50%);
+  animation: ca-approval-in 180ms ease-out;
+}
+
+@keyframes ca-approval-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-approval-bar { animation: none; }
+}
+
 /* ── design system modal, corrected ──────────────────────────────────── */
 
 /*

@@ -14,11 +14,10 @@ import { NodeGlyph } from '../canvas/NodeIcon.jsx';
  * Feedback here reads as system output ("Expression returned undefined").
  */
 export function LogsPanel({
-  trace, running, open, onToggle, onOpenNode, onDecide, definitions, nodesById, liveAnswers,
+  trace, running, open, onToggle, onOpenNode, definitions, nodesById, liveAnswers,
 }) {
   const run = runState(trace, running);
   const records = trace ? trace.nodes || [] : [];
-  const paused = trace && trace.status === 'paused' && trace.awaiting;
 
   return (
     <section className={`ca-logs${open ? ' is-open' : ''}`} aria-label="Logs">
@@ -63,42 +62,6 @@ export function LogsPanel({
 
       {open ? (
         <div className="ca-logs-body" id="ca-logs-body">
-          {/*
-            The approval prompt, where the items are. It sits at the top of the
-            logs rather than in a modal: the decision is about the items listed
-            right below it, and a dialog would cover them.
-          */}
-          {paused ? (
-            <div className="ca-approval" role="group" aria-label="Approval required">
-              <span className="ca-approval-icon" aria-hidden="true"><Icon name="pause" size={14} /></span>
-              <div className="ca-approval-text">
-                <span className="ca-approval-prompt body-small">{trace.awaiting.prompt}</span>
-                <span className="ca-approval-meta body-xxsmall">
-                  {`"${trace.awaiting.node}" is holding ${trace.awaiting.items.length} `}
-                  {trace.awaiting.items.length === 1 ? 'item' : 'items'}
-                </span>
-              </div>
-              <span className="ca-approval-actions">
-                <Button
-                  variant="secondary"
-                  size="xsmall"
-                  disabled={running}
-                  onClick={() => onDecide(trace.awaiting.node, 'reject')}
-                >
-                  Reject
-                </Button>
-                <Button
-                  variant="primary"
-                  size="xsmall"
-                  disabled={running}
-                  onClick={() => onDecide(trace.awaiting.node, 'approve')}
-                >
-                  Approve
-                </Button>
-              </span>
-            </div>
-          ) : null}
-
           {!trace ? (
             <div className="ca-logs-empty body-small">
               <p>Nothing has run yet.</p>

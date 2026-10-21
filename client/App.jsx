@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from './shell/Header.jsx';
 import { LogsPanel } from './shell/LogsPanel.jsx';
+import { ApprovalBar } from './shell/ApprovalBar.jsx';
 import { Modal } from './ui/Modal.jsx';
 import { Button, Kbd } from './ui/primitives.jsx';
 import { Icon, Spinner } from './ui/Icon.jsx';
@@ -595,7 +596,6 @@ export function App() {
             open={logOpen}
             onToggle={() => setLogOpen((o) => !o)}
             onOpenNode={(id) => { setSelectedIds([id]); setOpenNodeId(id); }}
-            onDecide={handleDecide}
             definitions={definitions}
             nodesById={nodesById}
             liveAnswers={scenario ? scenario.liveAnswers : null}
@@ -633,6 +633,13 @@ export function App() {
             onOpenDocs={() => setHelpTopic(`node:${openNode.type}`)}
           />
         ) : null}
+
+        {/* A paused run's approval floats above everything, node settings included. */}
+        <ApprovalBar
+          awaiting={trace && trace.status === 'paused' ? trace.awaiting : null}
+          running={running}
+          onDecide={handleDecide}
+        />
       </div>
 
       <CredentialsModal
