@@ -74,7 +74,8 @@ const isCatchAll = (f) => !f.when || Object.keys(f.when).every((k) => k === 'too
  * @param graph     a workflow that reaches every agent call worth recording —
  *                  usually the reference solution
  * @param provider  async ({ system, user, outputFields, model, tools, callTool })
- *                  => answer object; `label` and `model` properties are recorded
+ *                  => answer: an object of the fields, or text when outputFields
+ *                  is empty (no output parser); `label` and `model` are recorded
  * @returns {{ fixtures, recorded, passes, unanswered }}
  */
 async function recordFixtures({ scenario, graph, provider, log = () => {} }) {
@@ -100,6 +101,15 @@ async function recordFixtures({ scenario, graph, provider, log = () => {} }) {
     .map((n) => ({ node: n, name: String((n.parameters || {}).toolName || '').trim(),
       description: String((n.parameters || {}).description || '').trim() }))
     .filter((t) => t.name);
+
+  /** The fields of the enabled Structured Output Parser wired into a node, or [] (text). */
+  const parserFieldsOf = (node) => {
+    const parser = (graph.connections || [])
+      .filter((c) => c.to === node.id)
+      .map((c) => byId.get(c.from))
+      .find((n) => n && n.type === 'outputParser' && !n.disabled);
+    return parser ? ((parser.parameters || {}).fields || []).map((f) => String(f).trim()).filter(Boolean) : [];
+  };
 
   const uniqueId = (base) => {
     const stem = `rec-${base}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+$/, '');
@@ -147,15 +157,21 @@ async function recordFixtures({ scenario, graph, provider, log = () => {} }) {
           nodeName: t.node.name,
           tool: name,
           request: { input: args, systemPrompt: String(params.systemPrompt || ''), userPrompt: String(params.userPrompt || '') },
-          outputFields: (params.outputFields || []).filter(Boolean),
+          outputFields: parserFieldsOf(t.node),
           model: params.model,
         }, depth + 1);
       },
     });
 
-    const respond = {};
-    for (const field of outputFields) {
-      if (result && result[field] !== undefined) respond[field] = result[field];
+    // Fields when an output parser asks for them; otherwise the text answer.
+    let respond;
+    if (outputFields.length) {
+      respond = {};
+      for (const field of outputFields) {
+        if (result && result[field] !== undefined) respond[field] = result[field];
+      }
+    } else {
+      respond = typeof result === 'string' ? result : JSON.stringify(result === undefined ? '' : result);
     }
     const fixture = {
       id: uniqueId(`${tool || nodeName}-${recorded.length + 1}`),
@@ -203,6 +219,8 @@ async function recordFixtures({ scenario, graph, provider, log = () => {} }) {
 function anthropicProvider({ apiKey, model = DEFAULT_MODEL }) {
   if (!apiKey) throw new Error('--provider anthropic needs ANTHROPIC_API_KEY in the environment');
   const ask = async ({ system, user, outputFields, tools, callTool }) => {
+    // Without fields the agent answers in text, so there is no respond tool.
+    const structured = outputFields.length > 0;
     const respondTool = {
       name: 'respond',
       description: 'Give your final answer. Call this exactly once, when you are done.',
@@ -218,7 +236,7 @@ function anthropicProvider({ apiKey, model = DEFAULT_MODEL }) {
         description: t.description || t.name,
         input_schema: { type: 'object', additionalProperties: true },
       })),
-      respondTool,
+      ...(structured ? [respondTool] : []),
     ];
     const messages = [{ role: 'user', content: user || '(empty prompt)' }];
 
@@ -232,7 +250,8 @@ function anthropicProvider({ apiKey, model = DEFAULT_MODEL }) {
         },
         body: JSON.stringify({
           model, max_tokens: 1024, system: system || undefined,
-          tools: toolDefs, tool_choice: { type: 'any' }, messages,
+          ...(toolDefs.length ? { tools: toolDefs, tool_choice: { type: structured ? 'any' : 'auto' } } : {}),
+          messages,
         }),
       });
       if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
@@ -242,11 +261,14 @@ function anthropicProvider({ apiKey, model = DEFAULT_MODEL }) {
       const uses = (body.content || []).filter((b) => b.type === 'tool_use');
       const final = uses.find((u) => u.name === 'respond');
       if (final) return final.input;
+      if (!structured && !uses.length) {
+        return (body.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+      }
 
       const results = [];
       for (const use of uses) {
         const out = await callTool(use.name, use.input);
-        results.push({ type: 'tool_result', tool_use_id: use.id, content: JSON.stringify(out) });
+        results.push({ type: 'tool_result', tool_use_id: use.id, content: typeof out === 'string' ? out : JSON.stringify(out) });
       }
       if (!results.length) throw new Error('the model answered without using a tool or responding');
       messages.push({ role: 'user', content: results });
@@ -291,9 +313,9 @@ function dryRunProvider(write) {
     write(`\n── would send (${model || 'task model unset'}) ──\n`);
     if (system) write(`system: ${system}\n`);
     write(`user:   ${user}\n`);
-    write(`fields: ${outputFields.join(', ') || '(none)'}\n`);
+    write(`fields: ${outputFields.join(', ') || '(none — answers in text)'}\n`);
     if (tools.length) write(`tools:  ${tools.map((t) => `${t.name} — ${t.description || '(no description)'}`).join('\n        ')}\n`);
-    return Object.fromEntries(outputFields.map((f) => [f, `<${f}>`]));
+    return outputFields.length ? Object.fromEntries(outputFields.map((f) => [f, `<${f}>`])) : '<answer>';
   };
   ask.label = 'dry-run';
   ask.model = null;

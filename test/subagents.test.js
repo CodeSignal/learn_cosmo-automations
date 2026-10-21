@@ -86,12 +86,27 @@ test('a disabled tool is not available, and the error says so', async () => {
   assert.strictEqual(trace.nodes.find((r) => r.id === TOOL).status, 'disabled');
 });
 
-test('a subagent with no expected fields fails its parent, naming the subagent', async () => {
+test('a subagent answers in text by default, and its parent still completes', async () => {
+  const trace = await run(SCENARIO, REF);
+  assert.ok(!REF.connections.some((c) => c.to === TOOL), 'the reference subagent has no output parser');
+  assert.strictEqual(trace.nodes.find((r) => r.id === TOOL).status, 'success');
+});
+
+test('a subagent whose output parser names no fields fails its parent, naming the subagent', async () => {
   const g = clone(REF);
-  node(g, TOOL).parameters.outputFields = [];
+  g.nodes.push({ id: 'tp', name: 'Lookup Parser', type: 'outputParser', position: [520, 400], parameters: { fields: [] } });
+  g.connections.push({ from: 'tp', fromOutput: 0, to: TOOL, toInput: 1 });
   const trace = await run(SCENARIO, g);
-  assert.match(trace.nodes.find((r) => r.id === AGENT).error, /Subagent "Look Up Order" declares no expected output fields/);
+  assert.match(trace.nodes.find((r) => r.id === AGENT).error, /Subagent "Look Up Order" has an output parser that names no fields/);
   assert.strictEqual(trace.nodes.find((r) => r.id === TOOL).status, 'error');
+});
+
+test('a subagent with an output parser must return its fields', async () => {
+  const g = clone(REF);
+  g.nodes.push({ id: 'tp', name: 'Lookup Parser', type: 'outputParser', position: [520, 400], parameters: { fields: ['carrier'] } });
+  g.connections.push({ from: 'tp', fromOutput: 0, to: TOOL, toInput: 1 });
+  const trace = await run(SCENARIO, g);
+  assert.match(trace.nodes.find((r) => r.id === AGENT).error, /returned none of the fields its output parser asks for \(carrier\)/);
 });
 
 test('a top-level catch-all never answers a subagent', async () => {
@@ -113,7 +128,7 @@ test('a subagent can have a subagent of its own', async () => {
   const g = clone(REF);
   g.nodes.push({
     id: 'n10', name: 'Check Carrier', type: 'agentTool', position: [380, 400],
-    parameters: { toolName: 'check_carrier', description: 'Which carrier shipped an order.', model: 'gpt-5-mini', systemPrompt: '', userPrompt: '=Carrier for {{ $json.orderId }}', outputFields: ['carrier'] },
+    parameters: { toolName: 'check_carrier', description: 'Which carrier shipped an order.', model: 'gpt-5-mini', systemPrompt: '', userPrompt: '=Carrier for {{ $json.orderId }}' },
   });
   g.connections.push({ from: 'n10', fromOutput: 0, to: TOOL, toInput: 0 });
 

@@ -174,13 +174,36 @@ async function executeWorkflow(scenario, graph, options = {}) {
    */
   const toolDef = (n) => getNode(n.type, scenario);
   const isToolNode = (n) => Boolean(toolDef(n) && toolDef(n).toolOutput);
+  /*
+   * Output parsers work the same way as tools: a Structured Output Parser is
+   * wired into an agent's Output Parser port (the one after Tools), carries no
+   * items and never runs as a step. `parserOf` maps an agent to its parser.
+   */
+  const isParserNode = (n) => Boolean(toolDef(n) && toolDef(n).parserOutput);
+  const isSubNode = (n) => isToolNode(n) || isParserNode(n);
+  const parserPortOf = (def) => (def.inputs || 0) + (def.toolInput ? 1 : 0);
   const toolsOf = new Map();
+  const parserOf = new Map();
   const connections = [];
   for (const c of allConnections) {
     const from = byId.get(c.from);
     const to = byId.get(c.to);
     if (!from || !to) { connections.push(c); continue; }
     const toDef = toolDef(to);
+    const fromParser = isParserNode(from);
+    const intoParser = Boolean(toDef && toDef.parserInput && (c.toInput || 0) === parserPortOf(toDef));
+    if (fromParser || intoParser) {
+      if (fromParser !== intoParser) {
+        return fail(trace, fromParser
+          ? `"${from.name}" is a Structured Output Parser. It can only connect to the Output Parser port of an AI Agent or AI Agent Tool.`
+          : `The Output Parser port of "${to.name}" only takes a Structured Output Parser, and "${from.name}" is not one.`);
+      }
+      if (parserOf.has(to.id)) {
+        return fail(trace, `"${to.name}" has more than one output parser. An agent answers in one format; attach one parser.`);
+      }
+      parserOf.set(to.id, from);
+      continue;
+    }
     const fromTool = isToolNode(from);
     const intoTools = Boolean(toDef && toDef.toolInput && (c.toInput || 0) === toDef.inputs);
     if (fromTool !== intoTools) {
@@ -246,7 +269,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
    * The trace it produces is therefore partial by construction and is flagged as
    * such — the server refuses to save it as the graded run.
    */
-  let runList = order.filter((n) => !insideALoop.has(n.id) && !isToolNode(n));
+  let runList = order.filter((n) => !insideALoop.has(n.id) && !isSubNode(n));
   let untilNode = null;
   if (options.untilNode) {
     if (!byId.has(options.untilNode)) {
@@ -254,6 +277,9 @@ async function executeWorkflow(scenario, graph, options = {}) {
     }
     if (isToolNode(byId.get(options.untilNode))) {
       return fail(trace, 'An AI Agent Tool runs only when an agent calls it. Execute the agent it is attached to instead.');
+    }
+    if (isParserNode(byId.get(options.untilNode))) {
+      return fail(trace, 'A Structured Output Parser is used when the agent it is attached to runs. Execute that agent instead.');
     }
     const needed = ancestorsOf(options.untilNode, acyclic);
     needed.add(options.untilNode);
@@ -267,7 +293,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
       if (body.has(options.untilNode) || needed.has(loopId)) needed.add(loopId);
     }
 
-    runList = order.filter((n) => needed.has(n.id) && !insideALoop.has(n.id) && !isToolNode(n));
+    runList = order.filter((n) => needed.has(n.id) && !insideALoop.has(n.id) && !isSubNode(n));
     untilNode = options.untilNode;
     trace.partial = true;
     trace.untilNode = options.untilNode;
@@ -364,6 +390,12 @@ async function executeWorkflow(scenario, graph, options = {}) {
           if (!toolFp) { ok = false; break; }
           parts.push(JSON.stringify(['tool', toolFp]));
         }
+        const parser = parserOf.get(node.id);
+        if (ok && parser) {
+          const parserFp = fpOf(parser);
+          if (!parserFp) ok = false;
+          else parts.push(JSON.stringify(['parser', parserFp]));
+        }
         if (ok) {
           const { position, ...settings } = node;
           const credential = node.credentialId ? credentials.get(node.credentialId) || null : null;
@@ -403,7 +435,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
     if (touchesALoop) {
       reusedIds.clear();
     } else {
-      runList = order.filter((n) => mustRun.has(n.id) && !isToolNode(n));
+      runList = order.filter((n) => mustRun.has(n.id) && !isSubNode(n));
     }
   }
 
@@ -424,6 +456,23 @@ async function executeWorkflow(scenario, graph, options = {}) {
    * tool so the candidate knows where to look.
    */
   const toolUse = new Map();
+
+  /** parser node id -> how many answers it shaped. */
+  const parserUse = new Map();
+  /**
+   * The fields an agent must answer in: its attached Structured Output Parser's,
+   * or null when it has none (or a disabled one) and answers in text.
+   */
+  const parserFieldsFor = (agentNode, json) => {
+    const parser = parserOf.get(agentNode.id);
+    if (!parser || parser.disabled) return null;
+    const params = resolveParameters(parser.parameters || {}, {
+      json, itemIndex: 0, items: [makeItem(json)], nodeOutputs: nodeOutputsByName,
+      vars: scenario.vars || {}, env: scenario.env || {}, now, timeoutMs: limits.maxExpressionMs,
+    }).value;
+    parserUse.set(parser.id, (parserUse.get(parser.id) || 0) + 1);
+    return (Array.isArray(params.fields) ? params.fields : []).map((f) => String(f).trim()).filter(Boolean);
+  };
   /*
    * `recorded` marks a live run whose agent fell back to its recording: these
    * subagent answers are recorded too, and say so, rather than looking like an
@@ -460,9 +509,10 @@ async function executeWorkflow(scenario, graph, options = {}) {
       use.calls += 1;
       use.via.add(parent.name);
 
-      const fields = (hit.params.outputFields || []).filter(Boolean);
-      const problem = !fields.length
-        ? 'declares no expected output fields, so its answer cannot be read'
+      // Fields only with a Structured Output Parser attached; otherwise text.
+      const fields = parserFieldsFor(hit.node, input);
+      const problem = fields && !fields.length
+        ? 'has an output parser that names no fields'
         : (!String(hit.params.userPrompt || '').trim() ? 'has an empty user prompt' : null);
       if (problem) {
         use.error = `"${hit.node.name}" ${problem}.`;
@@ -470,7 +520,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
       }
 
       const res = resolveAgentCall(scenario, {
-        nodeName: hit.node.name, tool: want, input, model: hit.params.model, outputFields: fields, perItem: true,
+        nodeName: hit.node.name, tool: want, input, model: hit.params.model, outputFields: fields || [], perItem: true,
       });
       trace.aiCalls.push({
         node: hit.node.name,
@@ -480,7 +530,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
         perItem: true,
         fixture: res.ok ? res.fixtureId : null,
         denied: Boolean(res.denied),
-        outputFields: fields,
+        outputFields: fields || [],
         ...missedRequest(res, {
           input, systemPrompt: hit.params.systemPrompt, userPrompt: hit.params.userPrompt,
         }),
@@ -490,10 +540,11 @@ async function executeWorkflow(scenario, graph, options = {}) {
         use.error = res.explanation;
         return `Subagent "${hit.node.name}": ${res.explanation}`;
       }
-      if (fields.every((f) => res.output[f] === undefined)) {
-        use.error = `returned none of the fields it asked for (${fields.join(', ')})`;
-        return `Subagent "${hit.node.name}" returned none of the fields it asked for (${fields.join(', ')}). `
-          + `It returned: ${Object.keys(res.output).join(', ') || '(nothing)'}.`;
+      const shaped = res.output && typeof res.output === 'object' ? res.output : {};
+      if (fields && fields.every((f) => shaped[f] === undefined)) {
+        use.error = `returned none of the fields its output parser asks for (${fields.join(', ')})`;
+        return `Subagent "${hit.node.name}" returned none of the fields its output parser asks for (${fields.join(', ')}). `
+          + `It returned: ${Object.keys(shaped).join(', ') || '(nothing)'}.`;
       }
 
       if (res.calls.length) {
@@ -590,9 +641,9 @@ async function executeWorkflow(scenario, graph, options = {}) {
     use.calls += 1;
     use.via.add(parent.name);
 
-    const fields = (hit.params.outputFields || []).filter(Boolean);
-    const problem = !fields.length
-      ? 'declares no expected output fields, so its answer cannot be read'
+    const fields = parserFieldsFor(hit.node, input);
+    const problem = fields && !fields.length
+      ? 'has an output parser that names no fields'
       : (!String(hit.params.userPrompt || '').trim() ? 'has an empty user prompt' : null);
     if (problem) {
       use.error = `"${hit.node.name}" ${problem}.`;
@@ -608,23 +659,23 @@ async function executeWorkflow(scenario, graph, options = {}) {
       systemPrompt: String(hit.params.systemPrompt || ''),
       userPrompt: String(hit.params.userPrompt || ''),
       input,
-      outputFields: fields,
+      outputFields: fields || [],
       tools: liveToolsFor(hit.node),
       runTool: (n, a) => runToolLive(hit.node, n, a, [...chain, hit.node.id]),
     });
     const base = { node: hit.node.name, via: parent.name, tool: name, model: hit.params.model || null, perItem: true };
 
     if (res.ok) {
-      trace.aiCalls.push({ ...base, fixture: null, denied: false, outputFields: fields, ...liveFields(res) });
+      trace.aiCalls.push({ ...base, fixture: null, denied: false, outputFields: fields || [], ...liveFields(res) });
       use.ok += 1;
       return res.output;
     }
 
     const rec = resolveAgentCall(scenario, {
-      nodeName: hit.node.name, tool: name, input, model: hit.params.model, outputFields: fields, perItem: true,
+      nodeName: hit.node.name, tool: name, input, model: hit.params.model, outputFields: fields || [], perItem: true,
     });
     trace.aiCalls.push({
-      ...base, fixture: rec.ok ? rec.fixtureId : null, denied: Boolean(rec.denied), outputFields: fields,
+      ...base, fixture: rec.ok ? rec.fixtureId : null, denied: Boolean(rec.denied), outputFields: fields || [],
       ...liveFields(res),
     });
     if (!rec.ok) {
@@ -876,6 +927,10 @@ async function executeWorkflow(scenario, graph, options = {}) {
 
     const makeCtx = (json, itemIndex, items, params) => ({
       params,
+      // An agent's answer format: its parser's fields, or null for text.
+      outputParser: def.parserInput
+        ? (() => { const fields = parserFieldsFor(node, json); return fields ? { fields } : null; })()
+        : null,
       now,
       credential,
       credentialTypes: credTypes,
@@ -1174,7 +1229,7 @@ async function executeWorkflow(scenario, graph, options = {}) {
   if (reusedIds.size) {
     for (const n of order) {
       const hit = cachedFor(n.id);
-      if (!hit || isToolNode(n) || runList.includes(n)) continue;
+      if (!hit || isSubNode(n) || runList.includes(n)) continue;
       nodeOutputsByName[n.name] = hit.outputs[0] || [];
       if (reusedIds.has(n.id)) outputsById.set(n.id, hit.outputs);
       const record = { ...JSON.parse(JSON.stringify(hit.record)), reused: true };
@@ -1229,6 +1284,28 @@ async function executeWorkflow(scenario, graph, options = {}) {
       diagnostics: [],
       error: use && use.error ? use.error : null,
       tool: true,
+    });
+  }
+
+  /*
+   * One record per output parser, for the same reason: `in` is how many answers
+   * it shaped. A parser attached to nothing that ran is `notRun`.
+   */
+  for (const node of nodes) {
+    if (!isParserNode(node)) continue;
+    const used = parserUse.get(node.id) || 0;
+    pushRecord({
+      id: node.id,
+      name: node.name,
+      type: node.type,
+      itemsIn: used,
+      itemsOut: used,
+      status: node.disabled ? 'disabled' : (used ? 'success' : 'notRun'),
+      ms: 0,
+      notes: [],
+      diagnostics: [],
+      error: null,
+      parser: true,
     });
   }
 

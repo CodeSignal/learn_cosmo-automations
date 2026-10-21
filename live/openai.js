@@ -57,9 +57,9 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
   /**
    * @param call
    *   model        the dropdown label the node picked
-   *   systemPrompt, userPrompt, input, outputFields
+   *   systemPrompt, userPrompt, input, outputFields (empty: answer in text)
    *   tools        [{ name, description }] — attached subagents
-   *   runTool      async (name, args) => answer object | { error }
+   *   runTool      async (name, args) => answer (text or fields) | { error }
    *   live         the scenario's ai.live block (models map, timeoutMs)
    */
   async function liveAgent(call) {
@@ -80,6 +80,9 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
     if (call.systemPrompt) messages.push({ role: 'system', content: String(call.systemPrompt) });
     messages.push({ role: 'user', content: String(call.userPrompt || '') });
 
+    // With fields (an output parser), the answer comes through a `respond`
+    // function the model must call; without, it is the model's final text.
+    const structured = fields.length > 0;
     const functions = [
       ...tools.map((t) => ({
         type: 'function',
@@ -89,7 +92,7 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
           parameters: { type: 'object', additionalProperties: true },
         },
       })),
-      {
+      ...(structured ? [{
         type: 'function',
         function: {
           name: RESPOND,
@@ -100,7 +103,7 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
             required: fields,
           },
         },
-      },
+      }] : []),
     ];
 
     const usage = { prompt: 0, completion: 0 };
@@ -115,8 +118,7 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
         body = await post(fetchImpl, endpoint, apiKey, {
           model: modelId,
           messages,
-          tools: functions,
-          tool_choice: 'required',
+          ...(functions.length ? { tools: functions, tool_choice: structured ? 'required' : 'auto' } : {}),
         }, remaining);
       } catch (err) {
         return { ...err.failure, usage };
@@ -127,7 +129,14 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
 
       const message = body.choices && body.choices[0] && body.choices[0].message;
       const toolCalls = (message && message.tool_calls) || [];
-      if (!toolCalls.length) return fail('bad-answer', 'The live model answered without the requested fields.', usage);
+      if (!toolCalls.length) {
+        if (structured) return fail('bad-answer', 'The live model answered without the requested fields.', usage);
+        const text = message && typeof message.content === 'string' ? message.content.trim() : '';
+        if (!text) return fail('bad-answer', 'The live model gave an empty answer.', usage);
+        const answer = { ok: true, output: text, model: modelId };
+        cache.set(key, answer);
+        return { ...answer, usage };
+      }
 
       const final = toolCalls.find((t) => t.function && t.function.name === RESPOND);
       if (final) {
@@ -151,7 +160,12 @@ function createLiveAgent({ apiKey, baseUrl, fetchImpl = globalThis.fetch } = {})
         } catch (err) {
           result = { error: err.message };
         }
-        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(result) });
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          // A subagent that answers in text hands back the text itself.
+          content: typeof result === 'string' ? result : JSON.stringify(result),
+        });
       }
     }
     return fail('bad-answer', `The live model gave no final answer within ${MAX_TURNS} turns.`, usage);

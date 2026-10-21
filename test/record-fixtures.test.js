@@ -38,16 +38,18 @@ function scriptedModel() {
   const asked = [];
   const provider = async ({ user, tools, callTool, outputFields }) => {
     asked.push(user);
-    if (outputFields.includes('daysSinceDelivery')) {
+    // The lookup subagent has no output parser, so it is asked for text.
+    if (!outputFields.length) {
       const id = /O-\d+/.exec(user)[0];
-      return { status: 'delivered', daysSinceDelivery: DELIVERY[id] };
+      return `Delivered ${DELIVERY[id]} days ago.`;
     }
     const order = /Order: (O-\d+)/.exec(user)[1];
     if (/changed my mind/.test(user) || !tools.some((t) => t.name === 'lookup_order')) {
       return { decision: 'deny' };
     }
     const looked = await callTool('lookup_order', { orderId: order });
-    return { decision: looked.daysSinceDelivery < 10 ? 'refund' : 'deny' };
+    const days = Number(/(\d+) days/.exec(looked)[1]);
+    return { decision: days < 10 ? 'refund' : 'deny' };
   };
   provider.label = 'scripted';
   provider.model = 'test-model';
@@ -151,12 +153,11 @@ test('the Anthropic provider needs a key, and speaks tool use correctly', async 
 
 test('the openai provider records through the same live client sessions use', async () => {
   const { openaiProvider } = require('../scripts/record-fixtures');
-  const { startFakeProxy, toolCall } = require('../scripts/fake-llm-proxy');
+  const { startFakeProxy, toolCall, text } = require('../scripts/fake-llm-proxy');
   const proxy = await startFakeProxy({
     handler: (body) => {
-      const respond = body.tools.find((t) => t.function.name === 'respond');
-      const fields = respond.function.parameters.required;
-      if (fields.includes('daysSinceDelivery')) return toolCall('respond', { status: 'delivered', daysSinceDelivery: 3 });
+      // The lookup subagent answers in text: no respond function, no tools.
+      if (!body.tools) return text('Delivered 3 days ago.');
       const asked = body.messages.find((m) => m.role === 'tool');
       if (!asked && !/changed my mind/.test(body.messages.find((m) => m.role === 'user').content)) {
         return toolCall('lookup_order', { orderId: /Order: (O-\d+)/.exec(body.messages.find((m) => m.role === 'user').content)[1] });

@@ -6,7 +6,7 @@
     "Six open tickets need triaging. A rule cannot classify free text, so this one needs a model — but the model is the expensive part of the workflow, and the task is as much about using it well as about using it.",
     "Build a workflow that:",
     "1. Fetches the open tickets from `https://helpdesk.acme.test/v1/tickets` using the Helpdesk credential.",
-    "2. Classifies each ticket with an AI Agent. Ask it for a `category` and a `severity` from 1 to 5, and declare both as the agent's expected output fields. The prompt must contain the ticket being classified — not a hardcoded example.",
+    "2. Classifies each ticket with an AI Agent. Ask it for a `category` and a `severity` from 1 to 5, and attach a Structured Output Parser that declares both fields, so the answer comes back as `$json.output.category` and `$json.output.severity` instead of free text. The prompt must contain the ticket being classified — not a hardcoded example.",
     "3. Use `gpt-5-mini`. Triage does not need the expensive model, and one call per ticket is already six calls.",
     "4. Keeps only the tickets with a severity of 4 or more.",
     "5. Before anything is sent, a human has to confirm. Add an approval step with the prompt `Escalate these tickets to the on-call engineer?`, and wire BOTH paths — a rejection should go to a No Operation node named `Hold For Review`, not into nothing.",
@@ -115,6 +115,7 @@
       "scheduleTrigger",
       "httpRequest",
       "agent",
+      "outputParser",
       "filter",
       "if",
       "switch",
@@ -128,7 +129,7 @@
       "slack"
     ],
     "exclude": [],
-    "excludeNote": "Code is not offered: the assertions name the mechanism (an Agent with declared output fields, a Filter on severity), and a Code node returning the same rows would be rejected for the wrong reason."
+    "excludeNote": "Code is not offered: the assertions name the mechanism (an Agent whose Structured Output Parser declares the fields, a Filter on severity), and a Code node returning the same rows would be rejected for the wrong reason."
   },
   "initialWorkflow": {
     "nodes": [
@@ -304,20 +305,27 @@
       "message": "The prompt must contain the ticket being classified. A prompt with a hardcoded example asks the same question for every item."
     },
     {
+      "id": "answers-in-fields",
+      "type": "connected",
+      "fromType": "outputParser",
+      "toType": "agent",
+      "message": "Attach a Structured Output Parser to the agent. Free text cannot be filtered on; named fields can."
+    },
+    {
       "id": "asks-for-severity",
       "type": "expressionContains",
-      "nodeType": "agent",
-      "param": "outputFields",
+      "nodeType": "outputParser",
+      "param": "fields",
       "substring": "severity",
-      "message": "The agent must declare `severity` as an expected output field, or nothing downstream can filter on it."
+      "message": "The output parser must declare `severity`, or nothing downstream can filter on it."
     },
     {
       "id": "asks-for-category",
       "type": "expressionContains",
-      "nodeType": "agent",
-      "param": "outputFields",
+      "nodeType": "outputParser",
+      "param": "fields",
       "substring": "category",
-      "message": "The agent must declare `category` as an expected output field."
+      "message": "The output parser must declare `category`."
     },
     {
       "id": "one-cheap-call-per-ticket",

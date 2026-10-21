@@ -242,8 +242,9 @@ export const NODE_DOCS = {
   },
 
   agent: {
-    summary: 'Asks an AI model to do something with an item and return the fields '
-      + 'you asked for, which the rest of the workflow can then use.',
+    summary: 'Asks an AI model to do something with an item. Its answer goes on the '
+      + 'item as `output` — text by default, or named fields when a Structured Output '
+      + 'Parser is attached.',
     mode: 'You choose. Once per item means one model call per item — ten items, ten '
       + 'calls. Once for all items means a single call.',
     when: 'Use it for the judgement a rule cannot express: classifying free text, '
@@ -255,26 +256,27 @@ export const NODE_DOCS = {
       { name: 'model', text: 'Which model. A triage or classification step rarely needs the expensive one.' },
       { name: 'systemPrompt', text: 'Who the model is and how to behave. Fixed instructions that do not change per item.' },
       { name: 'userPrompt', text: 'The request for THIS item. Use an expression so the item goes in — a prompt with a hardcoded value asks the same question every time.' },
-      { name: 'outputFields', text: 'The fields you are asking it to return. They are added to the item, so later nodes read them as `$json.<field>`. Name them in the prompt too.' },
     ],
     examples: [
       {
-        label: 'Classify a ticket',
-        code: 'system: You are a support triage assistant. Answer literally.\n'
-          + 'user:   =Classify this ticket.\n'
-          + '        Subject: {{ $json.subject }}\n'
-          + '        Return category and severity (1-5).\n'
-          + 'fields: category, severity',
-      },
-      {
-        label: 'The fields become part of the item',
+        label: 'Text by default',
         code: '// in\n{ "ticket": "T-03", "subject": "500 error on /api/orders" }\n\n'
           + '// out\n{ "ticket": "T-03", "subject": "500 error on /api/orders",\n'
-          + '  "category": "technical", "severity": 5 }',
+          + '  "output": "Technical problem, and urgent: the orders API is failing." }',
+      },
+      {
+        label: 'Fields, with a Structured Output Parser attached',
+        code: 'parser fields: category, severity\n\n'
+          + '// out\n{ "ticket": "T-03", "subject": "500 error on /api/orders",\n'
+          + '  "output": { "category": "technical", "severity": 5 } }\n\n'
+          + '// a later Filter reads {{ $json.output.severity }}',
       },
     ],
     gotchas: [
-      'Ask for the fields you declared. `outputFields` tells the workflow what to '
+      'Text is for people to read. A later node cannot branch on it reliably — when '
+      + 'something downstream has to filter or route on the answer, attach a '
+      + 'Structured Output Parser to the Output Parser port and name the fields.',
+      'Ask for the fields the parser declares. The parser tells the workflow what to '
       + 'expect; the PROMPT is what actually asks for them. If they disagree, the '
       + 'fields come back empty.',
       'A prompt without an expression asks about the same thing for every item. If '
@@ -288,7 +290,7 @@ export const NODE_DOCS = {
       + 'never depends on what a model happened to say: what is judged is your '
       + 'prompt, the fields you asked for, and how many calls you made.',
     ],
-    seeAlso: ['filter', 'switch', 'aggregate', 'agentTool'],
+    seeAlso: ['outputParser', 'filter', 'switch', 'aggregate', 'agentTool'],
   },
 
   agentTool: {
@@ -307,15 +309,13 @@ export const NODE_DOCS = {
       { name: 'model', text: 'Which model the subagent uses. A narrow job rarely needs the expensive one.' },
       { name: 'systemPrompt', text: 'Who the subagent is and how to behave.' },
       { name: 'userPrompt', text: 'The request, built from what the parent passed in. Those arguments are this tool\'s `$json` — `{{ $json.customerId }}`.' },
-      { name: 'outputFields', text: 'The fields the subagent returns to the parent.' },
     ],
     examples: [
       {
         label: 'A lookup the triage agent can call',
         code: 'tool name:   lookup_customer\n'
           + 'description: Looks up a customer\'s plan and account status by id.\n'
-          + 'user:        =Look up customer {{ $json.customerId }}\n'
-          + 'fields:      plan, status',
+          + 'user:        =Look up customer {{ $json.customerId }}',
       },
     ],
     gotchas: [
@@ -327,8 +327,40 @@ export const NODE_DOCS = {
       + 'Its line shows `notRun`, and that is worth reading as information.',
       'Subagents may have subagents, but never in a circle: an agent that can reach '
       + 'itself through its tools is refused.',
+      'It answers the parent in text. Attach a Structured Output Parser to its Output '
+      + 'Parser port when the parent needs named fields back.',
     ],
-    seeAlso: ['agent'],
+    seeAlso: ['agent', 'outputParser'],
+  },
+
+  outputParser: {
+    summary: 'Makes an AI agent answer in named fields instead of text, so the rest '
+      + 'of the workflow can read and branch on the answer.',
+    mode: 'It does not run as a step and carries no items. The agent it is attached to '
+      + 'uses it every time that agent answers.',
+    when: 'Attach it when the next node needs to act on the answer — filter on a '
+      + 'severity, route on a category, check a decision. If a person only reads the '
+      + 'answer, text is fine and you do not need it.',
+    params: [
+      { name: 'fields', text: 'The fields the model must return. The agent puts them on the item as `$json.output.<field>`. Ask for them in the prompt too.' },
+    ],
+    examples: [
+      {
+        label: 'Triage fields',
+        code: 'fields: category, severity\n\n'
+          + '// the agent\'s item\n{ ..., "output": { "category": "billing", "severity": 4 } }\n\n'
+          + '// a Filter after it\n{{ $json.output.severity }}  ≥  4',
+      },
+    ],
+    gotchas: [
+      'Wire it from its top edge to the Output Parser port on the bottom of the agent, '
+      + 'next to Tools. One parser per agent.',
+      'Without a parser the agent answers in text, and `$json.output.severity` is '
+      + 'undefined — `$json.output` is a sentence.',
+      'Name the same fields in the prompt. The parser says what shape to return; the '
+      + 'prompt says what the fields mean.',
+    ],
+    seeAlso: ['agent', 'agentTool'],
   },
 
   approval: {

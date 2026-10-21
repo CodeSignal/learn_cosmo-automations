@@ -55,8 +55,19 @@
         "mode": "runOncePerItem",
         "model": "gpt-5-mini",
         "systemPrompt": "You are a support triage assistant. Answer literally and choose the single best category.",
-        "userPrompt": "=Classify this support ticket.\nSubject: {{ $json.subject }}\nCustomer: {{ $json.customer }}\n\nReturn a category (billing, technical, question or feature) and a severity from 1 (trivial) to 5 (outage).",
-        "outputFields": [
+        "userPrompt": "=Classify this support ticket.\nSubject: {{ $json.subject }}\nCustomer: {{ $json.customer }}\n\nReturn a category (billing, technical, question or feature) and a severity from 1 (trivial) to 5 (outage)."
+      }
+    },
+    {
+      "id": "n4p",
+      "name": "Structured Output Parser",
+      "type": "outputParser",
+      "position": [
+        380,
+        200
+      ],
+      "parameters": {
+        "fields": [
           "category",
           "severity"
         ]
@@ -74,7 +85,7 @@
         "combinator": "and",
         "conditions": [
           {
-            "left": "={{ $json.severity }}",
+            "left": "={{ $json.output.severity }}",
             "op": "gte",
             "right": 4
           }
@@ -185,6 +196,12 @@
       "fromOutput": 1,
       "to": "n9",
       "toInput": 0
+    },
+    {
+      "from": "n4p",
+      "fromOutput": 0,
+      "to": "n4",
+      "toInput": 2
     }
   ],
   "credentials": [

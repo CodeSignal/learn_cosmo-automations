@@ -389,7 +389,7 @@ async function validateScenario(scenario, options = {}) {
   for (const type of offered) {
     const def = getNode(type, scenario);
     // A subagent has no inputs either, but it is called, not triggered.
-    if (def && def.inputs === 0 && !def.toolOutput && !(scenario.triggerPayload || {})[type] && type !== 'scheduleTrigger') {
+    if (def && def.inputs === 0 && !def.toolOutput && !def.parserOutput && !(scenario.triggerPayload || {})[type] && type !== 'scheduleTrigger') {
       warn(`the palette offers "${type}" but no triggerPayload is declared for it — `
         + 'it will emit an empty item');
     }
@@ -522,9 +522,9 @@ async function validateScenario(scenario, options = {}) {
 
         if (fixture.respond === undefined) {
           err(`${where} has no \`respond\`, so the agent would receive nothing`);
-        } else if (fixture.respond === null || typeof fixture.respond !== 'object'
-          || Array.isArray(fixture.respond)) {
-          err(`${where}.respond must be an object of output fields`);
+        } else if (typeof fixture.respond !== 'string' && (fixture.respond === null
+          || typeof fixture.respond !== 'object' || Array.isArray(fixture.respond))) {
+          err(`${where}.respond must be text (for an agent that answers in text) or an object of output fields (for one with an output parser)`);
         }
 
         const when = fixture.when;

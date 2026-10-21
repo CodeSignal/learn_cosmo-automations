@@ -172,8 +172,8 @@ export function App() {
     const node = graphRef.current.nodes.find((n) => n.id === nodeId);
     if (!node) return;
     const definition = definitionsRef.current[node.type];
-    // A tool's output only connects to an agent's Tools port, never to a new node.
-    if (definition && definition.toolOutput) return;
+    // A tool's or parser's output only connects to an agent's port, never to a new node.
+    if (definition && (definition.toolOutput || definition.parserOutput)) return;
     const outputs = definition ? effectiveOutputs(definition, node) : [];
     setConnectFrom({
       id: node.id,
@@ -225,9 +225,22 @@ export function App() {
     const typeOf = (id) => (current.nodes.find((n) => n.id === id) || {}).type;
     const fromDef = definitions[typeOf(connection.from)] || {};
     const toDef = definitions[typeOf(connection.to)] || {};
+    const fromParser = Boolean(fromDef.parserOutput);
+    const parserPort = (toDef.inputs || 0) + (toDef.toolInput ? 1 : 0);
+    const intoParser = Boolean(toDef.parserInput) && (connection.toInput || 0) === parserPort;
+    if (fromParser !== intoParser) {
+      showToast(fromParser
+        ? 'A Structured Output Parser connects to the Output Parser port on the bottom of an AI Agent.'
+        : 'The Output Parser port only takes a Structured Output Parser.');
+      return;
+    }
+    if (intoParser && current.connections.some((c) => c.to === connection.to && (c.toInput || 0) === parserPort)) {
+      showToast('This agent already has an output parser. Remove it first to attach another.');
+      return;
+    }
     const fromTool = Boolean(fromDef.toolOutput);
     const intoTools = Boolean(toDef.toolInput) && (connection.toInput || 0) === (toDef.inputs || 0);
-    if (fromTool !== intoTools) {
+    if (!fromParser && fromTool !== intoTools) {
       showToast(fromTool
         ? 'An AI Agent Tool connects to the Tools port on the bottom of an AI Agent.'
         : 'The Tools port only takes AI Agent Tools.');
@@ -615,7 +628,7 @@ export function App() {
             previousCount={nodesBefore(graph, trace, openNode.id, (type) => Boolean(
               definitions[type] && (definitions[type].toolOutput || definitions[type].parserOutput),
             ))}
-            canExecuteNode={!openDefinition.toolOutput && (openDefinition.inputs === 0
+            canExecuteNode={!openDefinition.toolOutput && !openDefinition.parserOutput && (openDefinition.inputs === 0
               || graph.connections.some((c) => c.to === openNode.id))}
             onOpenDocs={() => setHelpTopic(`node:${openNode.type}`)}
           />

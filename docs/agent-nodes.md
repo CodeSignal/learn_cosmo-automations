@@ -15,13 +15,34 @@ Three things are, and all three are deterministic:
 | | What it tests | How it is graded |
 |---|---|---|
 | **The prompt** | Did they give the model a role? Did they put the *item* in the prompt, or hardcode one example? | `expressionContains` on `systemPrompt` / `userPrompt` — static text in the graph, no model involved |
-| **The output contract** | Did they ask for the fields the rest of the workflow needs? | `outputFields` becomes part of the item; get it wrong and the next node reads `[undefined]` |
+| **The output contract** | Did they make the answer machine-readable where the workflow needs it? | A Structured Output Parser's `fields` become `$json.output.<field>`; get them wrong and the next node reads `[undefined]` |
 | **The call pattern** | One call per item or one for all? Which model? | `aiCalled` — this is the bill |
 
 A candidate who writes `Classify this ticket: Card declined at checkout` instead
 of `Classify this ticket: {{ $json.subject }}` has written a workflow that asks
 the same question six times. That is a real mistake, it is the most common one,
 and catching it needs no model at all.
+
+## Text or fields
+
+As in n8n, an AI Agent answers in **text** by default: the item gets
+`output: "…"`. Text is for a person to read; nothing downstream can branch on it
+reliably. When the next node has to filter or route on the answer, the candidate
+attaches a **Structured Output Parser** to the agent's Output Parser port (next to
+Tools) and names the fields there. The agent then answers in those fields, and the
+item gets `output: { category: "billing", severity: 4 }`, read as
+`{{ $json.output.severity }}`.
+
+Deciding *that* the answer must be structured is part of the skill, so the task
+statement says which fields it needs but the candidate does the wiring. Grade the
+parser like any other node: `connected` from `outputParser` to `agent`, and
+`expressionContains` on its `fields`.
+
+A fixture's `respond` follows the agent: **text** for an agent without a parser,
+an **object of fields** for one with. An object given to an agent that answers in
+text reaches it as JSON text, as a real model would answer; text given to an agent
+whose parser asks for fields is an error that says so. An AI Agent Tool works the
+same way: text back to its parent by default, fields with a parser of its own.
 
 ## The engine can only replay
 
@@ -115,10 +136,12 @@ the workflow finishes, exactly as for a partial "Execute Node" run.
 1. Declare `ai.models` — the choice should matter. Offering only one model removes
    the cost decision.
 2. Record `ai.fixtures`, one per input you expect, plus a catch-all.
-3. Say in the task statement **which fields to ask for**. The candidate cannot
-   guess your fixture's schema, and guessing is not the skill.
-4. Assert on the prompt (`expressionContains`), the fields (`expressionContains`
-   on `outputFields`) and the calls (`aiCalled`).
+3. If the workflow acts on the answer, say in the task statement **which fields to
+   ask for**. The candidate cannot guess your fixture's schema, and guessing is not
+   the skill; attaching the parser that asks for them is.
+4. Assert on the prompt (`expressionContains`), the parser (`connected` from
+   `outputParser` to `agent`, and `expressionContains` on its `fields`) and the
+   calls (`aiCalled`).
 5. If the task has an approval, add `approvals` so `npm run validate` can prove it
    solvable.
 
@@ -166,8 +189,8 @@ substring check rejects good descriptions.
 **Failure modes, each with its own message:** a tool wired into an ordinary input
 or an ordinary node into a Tools port (refused before the run); the model asking
 for a tool the agent does not have, which lists the tools it does have and says
-if one is disabled; a subagent with no output fields or no fixture, which fails
-its parent and names the subagent. Subagents may have subagents; a circle is
+if one is disabled; a subagent with no fixture, or whose output parser names no
+fields or gets none of them back, which fails its parent and names the subagent. Subagents may have subagents; a circle is
 refused, naming it, and nesting stops at four levels.
 
 `scenarios/refund-desk-agents/` is the worked example, with two correct and five

@@ -72,10 +72,19 @@ function toolCall(name, args, id = `call_${name}`) {
   return { tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] };
 }
 
-/** Fill every field the respond function requires with a placeholder. */
+/** An assistant message that answers in plain text. */
+function text(content) {
+  return { content };
+}
+
+/**
+ * Fill every field the respond function requires with a placeholder, or — when
+ * there is no respond function, because the agent answers in text — say so.
+ */
 function defaultHandler(body) {
   const respond = (body.tools || []).find((t) => t.function && t.function.name === 'respond');
-  const fields = (respond && respond.function.parameters && respond.function.parameters.required) || [];
+  if (!respond) return text('live answer');
+  const fields = (respond.function.parameters && respond.function.parameters.required) || [];
   return toolCall('respond', Object.fromEntries(fields.map((f) => [f, `live ${f}`])));
 }
 
@@ -85,4 +94,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { startFakeProxy, toolCall, completion };
+module.exports = { startFakeProxy, toolCall, text, completion };

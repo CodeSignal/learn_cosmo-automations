@@ -18,7 +18,7 @@ const path = require('path');
 const { run } = require('../engine');
 const { validateScenario } = require('../engine/validate');
 const { createLiveAgent } = require('../live/openai');
-const { startFakeProxy, toolCall } = require('../scripts/fake-llm-proxy');
+const { startFakeProxy, toolCall, text } = require('../scripts/fake-llm-proxy');
 const { grade } = require('../parse_automation_solution');
 
 const ROOT = path.join(__dirname, '..');
@@ -78,6 +78,23 @@ test('asks for the declared fields through a required respond function', async (
     assert.strictEqual(sent.body.tool_choice, 'required');
     assert.deepStrictEqual(requiredFields(sent.body), ['category', 'severity']);
     assert.deepStrictEqual(sent.body.messages.map((m) => m.role), ['system', 'user']);
+  });
+});
+
+test('without an output parser it asks for a plain answer and returns the text', async () => {
+  await withProxy(() => text('Billing, fairly urgent.'), async (proxy, agent) => {
+    const res = await ask(agent, { outputFields: [] });
+    assert.strictEqual(res.output, 'Billing, fairly urgent.');
+    const sent = proxy.requests[0];
+    assert.strictEqual(sent.body.tools, undefined, 'no respond function, and no tools to offer');
+    assert.strictEqual(sent.body.tool_choice, undefined);
+  });
+});
+
+test('an empty text answer falls back rather than passing nothing on', async () => {
+  await withProxy(() => text('  '), async (_proxy, agent) => {
+    const res = await ask(agent, { outputFields: [] });
+    assert.deepStrictEqual([res.ok, res.reason], [false, 'bad-answer']);
   });
 });
 
@@ -201,8 +218,8 @@ test('without a liveAgent — run.js, the validator, the grader — nothing chan
 
 test('subagents answer live too, called by the live parent', async () => {
   const handler = (body) => {
-    const fields = requiredFields(body);
-    if (fields.includes('daysSinceDelivery')) return toolCall('respond', { status: 'delivered', daysSinceDelivery: 2 });
+    // The subagent has no output parser, so no respond function: it answers in text.
+    if (!body.tools || !body.tools.some((t) => t.function.name === 'respond')) return text('Delivered 2 days ago.');
     const user = body.messages.find((m) => m.role === 'user').content;
     const toolResult = body.messages.find((m) => m.role === 'tool');
     if (!toolResult) return toolCall('lookup_order', { orderId: /Order: (O-\d+)/.exec(user)[1] });

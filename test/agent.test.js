@@ -8,8 +8,8 @@
  * never the interesting part. Three things are, and all three are deterministic:
  *
  *   1. the PROMPT — static text in the graph
- *   2. the OUTPUT CONTRACT — which fields the candidate asked for, and whether the
- *      rest of their workflow can read them
+ *   2. the OUTPUT CONTRACT — text, or the fields a Structured Output Parser asks
+ *      for, and whether the rest of their workflow can read them
  *   3. the CALL PATTERN — how many calls, on which model, which is the bill
  *
  * The tests below are organised around those three, plus the property that makes
@@ -47,13 +47,18 @@ const BARE = {
   },
 };
 
-async function runAgent(parameters, items = [{ topic: 'outage' }], scenarioOverride = {}) {
+/** Run one agent; `fields` attaches a Structured Output Parser, null leaves it answering in text. */
+async function runAgent(parameters, items = [{ topic: 'outage' }], scenarioOverride = {}, fields = FIELDS) {
   const graph = {
     nodes: [
       { id: 't', name: 'T', type: 'manualTrigger', position: [0, 0], parameters: {} },
       { id: 'a', name: 'Classify', type: 'agent', position: [1, 0], parameters },
+      ...(fields ? [{ id: 'p', name: 'Parser', type: 'outputParser', position: [1, 1], parameters: { fields } }] : []),
     ],
-    connections: [{ from: 't', fromOutput: 0, to: 'a', toInput: 0 }],
+    connections: [
+      { from: 't', fromOutput: 0, to: 'a', toInput: 0 },
+      ...(fields ? [{ from: 'p', fromOutput: 0, to: 'a', toInput: 2 }] : []),
+    ],
   };
   const trace = await executeWorkflow(
     { ...BARE, ...scenarioOverride, triggerPayload: { manualTrigger: items } }, graph,
@@ -67,8 +72,8 @@ const PARAMS = {
   model: 'm1',
   systemPrompt: 'You are a classifier.',
   userPrompt: '=Classify {{ $json.topic }}',
-  outputFields: ['label', 'score'],
 };
+const FIELDS = ['label', 'score'];
 
 /* ── the property everything else rests on ─────────────────────────────── */
 
@@ -94,7 +99,7 @@ test('a fixture is keyed to the INPUT, so rewording the prompt cannot change the
   assert.deepStrictEqual(terse.out, verbose.out,
     'a candidate who writes a BETTER prompt must not get a different fixture — keying on '
     + 'prompt text would fail them for improving');
-  assert.strictEqual(terse.out[0].label, 'urgent');
+  assert.strictEqual(terse.out[0].output.label, 'urgent');
 });
 
 test('two runs of the same workflow are identical', async () => {
@@ -143,31 +148,76 @@ test('the prompt is graded from the graph, with no model involved', () => {
 
 /* ── 2. the output contract ────────────────────────────────────────────── */
 
-test('the declared fields are added to the item, so downstream reads them', async () => {
+test('with an output parser, the fields go on the item as output, so downstream reads them', async () => {
   const { out } = await runAgent(PARAMS, [{ topic: 'outage', ticket: 'T-9' }]);
-  assert.deepStrictEqual(out, [{ topic: 'outage', ticket: 'T-9', label: 'urgent', score: 5 }]);
+  assert.deepStrictEqual(out, [{ topic: 'outage', ticket: 'T-9', output: { label: 'urgent', score: 5 } }]);
 });
 
-test('declaring no output fields is an error — nothing could consume the answer', async () => {
-  const { record } = await runAgent({ ...PARAMS, outputFields: [] });
+test('without an output parser, the agent answers in text', async () => {
+  const textual = {
+    ai: { mode: 'replay', models: ['m1'], fixtures: [{ id: 'say', when: {}, respond: 'Urgent: an outage.' }] },
+  };
+  const { out, record } = await runAgent(PARAMS, [{ topic: 'outage' }], textual, null);
+  assert.strictEqual(record.status, 'success');
+  assert.deepStrictEqual(out, [{ topic: 'outage', output: 'Urgent: an outage.' }]);
+});
+
+test('an answer recorded as fields still reads as text when no parser asks for fields', async () => {
+  const { out } = await runAgent(PARAMS, [{ topic: 'outage' }], {}, null);
+  assert.strictEqual(out[0].output, JSON.stringify({ label: 'urgent', score: 5 }));
+});
+
+test('a text answer where the parser asks for fields is named', async () => {
+  const textual = {
+    ai: { mode: 'replay', models: ['m1'], fixtures: [{ id: 'say', when: {}, respond: 'Urgent.' }] },
+  };
+  const { record } = await runAgent(PARAMS, [{ topic: 'outage' }], textual);
   assert.strictEqual(record.status, 'error');
-  assert.match(record.error, /no expected output fields/);
+  assert.match(record.error, /answered in text, not in the fields the output parser asks for/);
+});
+
+test('a parser that names no fields is an error, and says how to fix it', async () => {
+  const { record } = await runAgent(PARAMS, [{ topic: 'outage' }], {}, []);
+  assert.strictEqual(record.status, 'error');
+  assert.match(record.error, /names no fields/);
 });
 
 test('asking for fields the model did not return is named, not left undefined', async () => {
-  const { record } = await runAgent({ ...PARAMS, outputFields: ['sentiment', 'urgency'] });
+  const { record } = await runAgent(PARAMS, [{ topic: 'outage' }], {}, ['sentiment', 'urgency']);
   assert.strictEqual(record.status, 'error');
-  assert.match(record.error, /none of the fields you asked for/);
+  assert.match(record.error, /none of the fields the output parser asks for/);
   assert.match(record.error, /sentiment, urgency/);
   assert.match(record.error, /It returned: label, score/);
 });
 
 test('a partially-honoured schema still flows, with the missing field visible as undefined', async () => {
-  const { out, record } = await runAgent({ ...PARAMS, outputFields: ['label', 'confidence'] });
+  const { out, record } = await runAgent(PARAMS, [{ topic: 'outage' }], {}, ['label', 'confidence']);
   assert.strictEqual(record.status, 'success');
-  assert.strictEqual(out[0].label, 'urgent');
-  assert.ok('confidence' in out[0] && out[0].confidence === undefined,
+  assert.strictEqual(out[0].output.label, 'urgent');
+  assert.ok('confidence' in out[0].output && out[0].output.confidence === undefined,
     'the field the model ignored is present and empty, which is what happens in production');
+});
+
+test('a parser can only go into an Output Parser port, and an agent takes one', async () => {
+  const graph = {
+    nodes: [
+      { id: 't', name: 'T', type: 'manualTrigger', position: [0, 0], parameters: {} },
+      { id: 'a', name: 'Classify', type: 'agent', position: [1, 0], parameters: PARAMS },
+      { id: 'p', name: 'Parser', type: 'outputParser', position: [1, 1], parameters: { fields: FIELDS } },
+      { id: 'q', name: 'Parser 2', type: 'outputParser', position: [1, 2], parameters: { fields: FIELDS } },
+    ],
+    connections: [{ from: 't', fromOutput: 0, to: 'a', toInput: 0 }],
+  };
+  const intoData = await executeWorkflow(BARE, {
+    ...graph, connections: [...graph.connections, { from: 'p', fromOutput: 0, to: 'a', toInput: 0 }],
+  });
+  assert.match(intoData.errors[0].message, /can only connect to the Output Parser port/);
+  const two = await executeWorkflow(BARE, {
+    ...graph,
+    connections: [...graph.connections,
+      { from: 'p', fromOutput: 0, to: 'a', toInput: 2 }, { from: 'q', fromOutput: 0, to: 'a', toInput: 2 }],
+  });
+  assert.match(two.errors[0].message, /more than one output parser/);
 });
 
 /* ── 3. the call pattern, which is the bill ────────────────────────────── */
@@ -210,13 +260,18 @@ test('the report shows the calls and the model on the node line', async () => {
 /* ── the scenario discriminates ────────────────────────────────────────── */
 
 test('the task rejects each realistic wrong answer, for the right reason', async () => {
-  const variant = (mutate) => { const g = JSON.parse(JSON.stringify(reference)); mutate(g.nodes.find((n) => n.type === 'agent').parameters); return g; };
+  const variant = (mutate, type = 'agent') => { const g = JSON.parse(JSON.stringify(reference)); mutate(g.nodes.find((n) => n.type === type).parameters); return g; };
+  const withoutParser = JSON.parse(JSON.stringify(reference));
+  const parserId = withoutParser.nodes.find((n) => n.type === 'outputParser').id;
+  withoutParser.nodes = withoutParser.nodes.filter((n) => n.id !== parserId);
+  withoutParser.connections = withoutParser.connections.filter((c) => c.from !== parserId);
 
   const cases = [
     ['expensive model', variant((p) => { p.model = 'gpt-5'; }), 'one-cheap-call-per-ticket'],
     ['hardcoded prompt', variant((p) => { p.userPrompt = 'Classify: Card declined'; }), 'prompt-includes-the-ticket'],
     ['one call for all', variant((p) => { p.mode = 'runOnceForAllItems'; }), 'one-cheap-call-per-ticket'],
-    ['missing field', variant((p) => { p.outputFields = ['category']; }), 'asks-for-severity'],
+    ['missing field', variant((p) => { p.fields = ['category']; }, 'outputParser'), 'asks-for-severity'],
+    ['text, no parser', withoutParser, 'answers-in-fields'],
   ];
 
   for (const [name, graph, expectedFailure] of cases) {

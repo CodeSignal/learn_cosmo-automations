@@ -58,8 +58,9 @@ export function obstaclesFor(nodes) {
     const sub = node.data?.summary || '';
     const nameWidth = name.length * CAPTION.nameChar + CAPTION.pad;
     const nameLines = nameWidth > CAPTION.maxWidth ? 2 : 1;
-    // An agent's Tools port row sits at the foot of its caption.
-    const toolsRow = node.data?.definition?.toolInput ? 26 : 0;
+    // An agent's Tools / Output Parser port row sits at the foot of its caption.
+    const def = node.data?.definition;
+    const toolsRow = def && (def.toolInput || def.parserInput) ? 26 : 0;
     const captionWidth = Math.min(
       CAPTION.maxWidth,
       Math.max(nameWidth, sub ? sub.length * CAPTION.subChar + CAPTION.pad : 0, 40),

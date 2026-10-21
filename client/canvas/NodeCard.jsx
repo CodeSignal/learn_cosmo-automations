@@ -38,7 +38,12 @@ export const NodeCard = memo(({ data, selected }) => {
   // format, the engine and the report need no special case to read them.
   const toolInput = Boolean(definition.toolInput);
   const toolOutput = Boolean(definition.toolOutput);
-  const isTrigger = (definition.group === 'trigger' || inputs === 0) && !toolOutput;
+  // Output parsers work like tools: an agent takes one on the port after Tools,
+  // and a parser offers itself from its top edge.
+  const parserInput = Boolean(definition.parserInput);
+  const subOutput = toolOutput || Boolean(definition.parserOutput);
+  const parserPort = inputs + (toolInput ? 1 : 0);
+  const isTrigger = (definition.group === 'trigger' || inputs === 0) && !subOutput;
 
   /**
    * A node in a loop body shows the totals across every pass, and a node that
@@ -53,7 +58,7 @@ export const NodeCard = memo(({ data, selected }) => {
       className={[
         'ca-node-wrap',
         isTrigger && 'is-trigger',
-        toolOutput && 'is-tool',
+        subOutput && 'is-tool',
         selected && 'is-selected',
         node.disabled && 'is-disabled',
         status && `is-${status}`,
@@ -67,7 +72,7 @@ export const NodeCard = memo(({ data, selected }) => {
           type="button"
           className="ca-node-tool"
           onClick={onExecute}
-          disabled={running || toolOutput}
+          disabled={running || subOutput}
           aria-label={`Execute ${node.name}`}
           title={toolOutput
             ? 'A tool runs when its agent calls it — execute the agent instead'
@@ -141,13 +146,13 @@ export const NodeCard = memo(({ data, selected }) => {
         ) : null}
       </div>
 
-      {toolOutput ? (
+      {subOutput ? (
         <Handle
           type="source"
           position={Position.Top}
           id="out-0"
           className="ca-handle-tool"
-          aria-label={`${node.name} tool output`}
+          aria-label={`${node.name} ${toolOutput ? 'tool' : 'output parser'} output`}
         />
       ) : outputs.map((out, index) => {
         const top = portOffset(index, outputs.length, height);
@@ -237,16 +242,32 @@ export const NodeCard = memo(({ data, selected }) => {
           tile's bottom edge, so a tool's wire comes up to it without running
           through this node's name.
         */}
-        {toolInput ? (
-          <div className="ca-node-tools">
-            <span className="ca-node-tools-label body-xxsmall">Tools</span>
-            <Handle
-              type="target"
-              position={Position.Bottom}
-              id={`in-${inputs}`}
-              className="ca-handle-tool"
-              aria-label={`${node.name} tools input`}
-            />
+        {toolInput || parserInput ? (
+          <div className="ca-node-subports">
+            {toolInput ? (
+              <div className="ca-node-tools">
+                <span className="ca-node-tools-label body-xxsmall">Tools</span>
+                <Handle
+                  type="target"
+                  position={Position.Bottom}
+                  id={`in-${inputs}`}
+                  className="ca-handle-tool"
+                  aria-label={`${node.name} tools input`}
+                />
+              </div>
+            ) : null}
+            {parserInput ? (
+              <div className="ca-node-tools">
+                <span className="ca-node-tools-label body-xxsmall">Output Parser</span>
+                <Handle
+                  type="target"
+                  position={Position.Bottom}
+                  id={`in-${parserPort}`}
+                  className="ca-handle-tool"
+                  aria-label={`${node.name} output parser input`}
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -318,6 +339,11 @@ function tooltipFor(node, definition, summary, record) {
     // A subagent receives calls, not items.
     if (definition.toolOutput) {
       lines.push(`${record.itemsIn} ${record.itemsIn === 1 ? 'call' : 'calls'}`);
+      return lines.join('\n');
+    }
+    // A parser shapes answers; it has no items of its own.
+    if (definition.parserOutput) {
+      lines.push(`shaped ${record.itemsIn} ${record.itemsIn === 1 ? 'answer' : 'answers'}`);
       return lines.join('\n');
     }
     lines.push(definition.inputs === 0

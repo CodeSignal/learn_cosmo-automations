@@ -235,11 +235,18 @@
  * An agent's Tools port, at the foot of its caption: a label, and the
  * diamond handle a tool's wire comes up to.
  */
+/* The sub-node ports — Tools, Output Parser — side by side under the caption. */
+.ca-node-subports {
+  display: flex;
+  justify-content: center;
+  gap: var(--UI-Spacing-spacing-s);
+  width: 100%;
+}
+
 .ca-node-tools {
   position: relative;
   display: flex;
   justify-content: center;
-  width: 100%;
   height: 26px;
   padding-top: var(--UI-Spacing-spacing-xxs);
 }

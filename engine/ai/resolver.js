@@ -63,7 +63,7 @@ function matches(fixture, { nodeName, input, tool }) {
 
 /**
  * @param scenario  carries `ai.mode` and `ai.fixtures`
- * @param call      { nodeName, input, outputFields, tool? }
+ * @param call      { nodeName, input, outputFields, tool? } — empty outputFields means a text answer
  * @returns {{ ok: true, output, fixtureId, calls } | { ok: false, denied: true, explanation }}
  */
 function resolveAgentCall(scenario, call) {
@@ -94,9 +94,13 @@ function resolveAgentCall(scenario, call) {
     );
   }
 
+  // Text for an agent that answers in text, an object of fields for one with an
+  // output parser.
   const output = hit.respond === undefined ? {} : hit.respond;
-  if (output === null || typeof output !== 'object' || Array.isArray(output)) {
-    return deny(`Fixture "${hit.id || '(unnamed)'}" responds with a ${typeof output}, not an object.`);
+  const isText = typeof output === 'string';
+  const isFields = output !== null && typeof output === 'object' && !Array.isArray(output);
+  if (!isText && !isFields) {
+    return deny(`Fixture "${hit.id || '(unnamed)'}" responds with ${Array.isArray(output) ? 'a list' : `a ${typeof output}`}, not text or an object of fields.`);
   }
 
   // The tool calls the model made before answering — replayed by the scheduler.

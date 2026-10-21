@@ -6,8 +6,8 @@
     "Four refund requests are waiting. Deciding them needs judgement, and for most of them it also needs facts about the order — whether it was delivered, and how long ago. That lookup is a narrow, repetitive job, so it belongs to a cheaper subagent the main agent can call when it needs to.",
     "Build a workflow that:",
     "1. Fetches the requests from `https://helpdesk.acme.test/v1/refund-requests` using the Helpdesk credential (API key `hd_test_FAKE_71c0`).",
-    "2. Decides each request with an AI Agent on `gpt-5`. Ask it for a `decision` (`refund` or `deny`) and declare that as its expected output field. The prompt must contain the request being decided.",
-    "3. Gives that agent one tool: an AI Agent Tool named `lookup_order` on `gpt-5-mini`, which takes the order id and returns the order's `status` and `daysSinceDelivery`. Its prompt must use the order id it is given. Describe what it does, so the agent knows when to use it.",
+    "2. Decides each request with an AI Agent on `gpt-5`. Ask it for a `decision` (`refund` or `deny`) and attach a Structured Output Parser that declares it, so the decision comes back as `$json.output.decision`. The prompt must contain the request being decided.",
+    "3. Gives that agent one tool: an AI Agent Tool named `lookup_order` on `gpt-5-mini`, which takes the order id and tells the agent the order's status and how many days ago it was delivered. Its prompt must use the order id it is given. Describe what it does, so the agent knows when to use it.",
     "4. Keeps only the requests decided `refund`.",
     "5. Posts one message to Slack on `#refunds` reading exactly `2 refunds approved` (Slack token `xoxb-FAKE-000000-000000`)."
   ],
@@ -274,6 +274,7 @@
       "httpRequest",
       "splitOut",
       "agent",
+      "outputParser",
       "agentTool",
       "filter",
       "if",
@@ -321,12 +322,19 @@
       "message": "Deciding a refund is a judgement call; it needs a model."
     },
     {
+      "id": "agent-answers-in-fields",
+      "type": "connected",
+      "fromType": "outputParser",
+      "toType": "agent",
+      "message": "Attach a Structured Output Parser to the agent, so its decision comes back as a field the next node can filter on."
+    },
+    {
       "id": "agent-asks-for-decision",
       "type": "expressionContains",
-      "nodeType": "agent",
-      "param": "outputFields",
+      "nodeType": "outputParser",
+      "param": "fields",
       "substring": "decision",
-      "message": "The agent must declare `decision` as an expected output field."
+      "message": "The agent's output parser must declare `decision`."
     },
     {
       "id": "agent-prompt-includes-the-request",

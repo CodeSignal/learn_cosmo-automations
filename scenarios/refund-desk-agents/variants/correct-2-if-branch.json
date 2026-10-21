@@ -55,8 +55,19 @@
         "mode": "runOncePerItem",
         "model": "gpt-5",
         "systemPrompt": "You decide refund requests under a 30-day returns policy. Look up the order when the decision depends on delivery.",
-        "userPrompt": "=Decide this refund request.\nRequest: {{ $json.request }}\nOrder: {{ $json.orderId }}\nReason: {{ $json.reason }}\n\nReturn a decision: refund or deny.",
-        "outputFields": [
+        "userPrompt": "=Decide this refund request.\nRequest: {{ $json.request }}\nOrder: {{ $json.orderId }}\nReason: {{ $json.reason }}\n\nReturn a decision: refund or deny."
+      }
+    },
+    {
+      "id": "n4p",
+      "name": "Structured Output Parser",
+      "type": "outputParser",
+      "position": [
+        540,
+        200
+      ],
+      "parameters": {
+        "fields": [
           "decision"
         ]
       }
@@ -74,11 +85,7 @@
         "description": "Looks up an order by its id and returns its delivery status and how many days ago it was delivered.",
         "model": "gpt-5-mini",
         "systemPrompt": "You look up orders. Answer only from the order record.",
-        "userPrompt": "=Look up order {{ $json.orderId }}. Return status and daysSinceDelivery.",
-        "outputFields": [
-          "status",
-          "daysSinceDelivery"
-        ]
+        "userPrompt": "=Look up order {{ $json.orderId }}. Return status and daysSinceDelivery."
       }
     },
     {
@@ -93,7 +100,7 @@
         "combinator": "and",
         "conditions": [
           {
-            "left": "={{ $json.decision }}",
+            "left": "={{ $json.output.decision }}",
             "op": "equals",
             "right": "refund"
           }
@@ -176,6 +183,12 @@
       "fromOutput": 0,
       "to": "n8",
       "toInput": 0
+    },
+    {
+      "from": "n4p",
+      "fromOutput": 0,
+      "to": "n4",
+      "toInput": 2
     }
   ],
   "credentials": [

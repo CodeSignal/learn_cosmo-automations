@@ -43,16 +43,18 @@ const SUMMARIES = {
   },
 
   agent: (p) => {
-    const fields = (p.outputFields || []).filter(Boolean);
     const scope = p.mode === 'runOnceForAllItems' ? 'all items' : 'per item';
-    const model = p.model || '(no model)';
-    return `${model} · ${scope} → ${fields.join(', ') || 'no fields'}`;
+    return `${p.model || '(no model)'} · ${scope}`;
   },
 
   agentTool: (p) => {
-    const fields = (p.outputFields || []).filter(Boolean);
     const name = String(p.toolName || '').trim() || '(unnamed tool)';
-    return `${name} · ${p.model || '(no model)'} → ${fields.join(', ') || 'no fields'}`;
+    return `${name} · ${p.model || '(no model)'}`;
+  },
+
+  outputParser: (p) => {
+    const fields = (p.fields || []).filter(Boolean);
+    return fields.length ? `→ ${fields.join(', ')}` : 'no fields';
   },
 
   filter: describeConditions,

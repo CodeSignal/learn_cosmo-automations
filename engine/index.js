@@ -93,6 +93,10 @@ function paletteFor(scenario) {
       // `inputs`) on the bottom edge; a tool's own output is on its top edge.
       toolInput: Boolean(n.toolInput),
       toolOutput: Boolean(n.toolOutput),
+      // Output parsers: the agent's Output Parser port comes after Tools; a
+      // parser offers itself from its top edge, like a tool.
+      parserInput: Boolean(n.parserInput),
+      parserOutput: Boolean(n.parserOutput),
       // A node whose mode depends on its configuration reports `dynamic`, plus
       // which parameter decides — the client resolves it per node through the
       // same shared function the engine uses.

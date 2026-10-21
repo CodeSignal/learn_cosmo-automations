@@ -113,7 +113,7 @@ function CanvasInner({
         running,
         summary: summariseNode(node.type, node.parameters, definition),
         // Port names, so connections can keep their labels off them.
-        ports: definition.toolOutput ? [] : effectiveOutputs(definition, node).map((o) => o.name),
+        ports: definition.toolOutput || definition.parserOutput ? [] : effectiveOutputs(definition, node).map((o) => o.name),
         connectedOutputs: connectedOutputs[node.id] || EMPTY_SET,
         outputCounts: record && record.outputsByPort
           ? record.outputsByPort.map((p) => p.count)
@@ -131,7 +131,8 @@ function CanvasInner({
   /** A subagent wire: drawn dashed, never labelled with an item count. */
   const isToolWire = useCallback((c) => {
     const from = graph.nodes.find((n) => n.id === c.from);
-    return Boolean(from && definitions[from.type] && definitions[from.type].toolOutput);
+    const def = from && definitions[from.type];
+    return Boolean(def && (def.toolOutput || def.parserOutput));
   }, [graph.nodes, definitions]);
 
   const desiredEdges = useMemo(() => graph.connections.map((c) => {
