@@ -262,6 +262,60 @@
 
 .ca-node-tools .react-flow__handle { pointer-events: auto; }
 
+.ca-node-tools-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/*
+ * A free sub-node port hangs a "+" below its diamond on a short dashed stub, in
+ * the AI hue of the wire that will replace it — the same "what goes here"
+ * affordance an unconnected output has to its right.
+ */
+.ca-node-sub-stub {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.ca-node-sub-line {
+  width: 0;
+  height: 14px;
+  border-left: 1.5px dashed var(--Colors-Control-Progress-Midnight-Blue-Thumb);
+}
+
+.ca-node-sub-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1.5px solid var(--Colors-Control-Progress-Midnight-Blue-Thumb);
+  border-radius: var(--UI-Radius-radius-xxs);
+  background: var(--Colors-Surface-Container-Base);
+  color: var(--Colors-Control-Progress-Midnight-Blue-Thumb);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ca-node-sub-add:hover {
+  background: var(--Colors-Control-Progress-Midnight-Blue-Thumb);
+  color: var(--Colors-Text-Body-White);
+}
+
+.ca-node-sub-add-inline {
+  width: 14px;
+  height: 14px;
+  border-width: 1px;
+}
+
 /* ── hover toolbar ───────────────────────────────────────────────────── */
 
 .ca-node-toolbar {
@@ -633,6 +687,15 @@
   gap: var(--UI-Spacing-spacing-xs);
   padding: var(--UI-Spacing-spacing-mxs) var(--UI-Spacing-spacing-s);
   color: var(--Colors-Text-Body-Light);
+}
+
+.ca-nodes-hidden {
+  flex: 0 0 auto;
+  margin: 0 var(--UI-Spacing-spacing-s) var(--UI-Spacing-spacing-s);
+  padding: var(--UI-Spacing-spacing-xs) var(--UI-Spacing-spacing-s);
+  border-radius: var(--UI-Radius-radius-xs);
+  background: var(--Colors-Emphasis-Primary-Subtle);
+  color: var(--Colors-Text-Body-Default);
 }
 
 .ca-nodes-foot {

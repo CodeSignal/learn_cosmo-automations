@@ -52,3 +52,28 @@ export function effectiveOutputs(definition, node) {
 export function hasDynamicOutputs(type) {
   return Object.prototype.hasOwnProperty.call(PORTS, type);
 }
+
+/**
+ * The ports an agent takes sub-nodes on: Tools is the input after the data
+ * inputs, Output Parser the one after that. Plain integers, like every port.
+ */
+export function subPortOf(definition, kind) {
+  const inputs = (definition && definition.inputs) || 0;
+  if (kind === 'tool') return definition && definition.toolInput ? inputs : null;
+  if (kind === 'parser') {
+    return definition && definition.parserInput ? inputs + (definition.toolInput ? 1 : 0) : null;
+  }
+  return null;
+}
+
+/** Which kind of sub-node input port `port` is — 'tool', 'parser' — or null. */
+export function subPortKind(definition, port) {
+  if (subPortOf(definition, 'tool') === port) return 'tool';
+  if (subPortOf(definition, 'parser') === port) return 'parser';
+  return null;
+}
+
+/** Whether a node type is one that attaches to an agent rather than joining the flow. */
+export function isSubNodeType(definition) {
+  return Boolean(definition && (definition.toolOutput || definition.parserOutput));
+}

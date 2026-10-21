@@ -3,6 +3,7 @@ import { Button, IconButton, Kbd } from '../ui/primitives.jsx';
 import { DsIcon, Icon } from '../ui/Icon.jsx';
 import { NodeGlyph } from './NodeIcon.jsx';
 import { describeMode } from '../../shared/node-mode.mjs';
+import { isSubNodeType } from '../../shared/node-ports.mjs';
 
 /**
  * The node panel: every node type this task offers, searchable, grouped.
@@ -14,6 +15,12 @@ import { describeMode } from '../../shared/node-mode.mjs';
  *    match adds it — the fast path once the catalogue is too big to browse.
  *  · A node's "+" stub opens it in *connect mode*: whatever is picked next is
  *    placed after that node and wired to it, and the header says so.
+ *  · An agent's Tools or Output Parser "+" opens it in *attach mode*: it lists
+ *    only tools, or only output parsers, and the pick is attached to that port.
+ *
+ * Tools and output parsers are not in the list otherwise. They never join the
+ * flow — they hang off an agent — so offering them beside Filter and Merge only
+ * invites dropping one where it cannot connect.
  *
  * Built for a catalogue an order of magnitude larger than today's: rows are a
  * fixed height, search ranks label prefixes first, groups collapse, and every
@@ -33,7 +40,7 @@ const GROUP_LABELS = {
 export const GROUP_ORDER = ['trigger', 'flow', 'data', 'ai', 'transport', 'integration'];
 
 export function NodePanel({
-  palette, open, onOpen, onClose, onAdd, connectFrom, onCancelConnect, focusToken,
+  palette, open, onOpen, onClose, onAdd, connectFrom, attachTo, onCancelConnect, focusToken,
 }) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
@@ -65,8 +72,22 @@ export function NodePanel({
 
   const needle = query.trim().toLowerCase();
 
+  // What this panel offers: sub-nodes for the port being attached to, or
+  // everything else. An auto-fixing parser cannot wrap another, so a fixer's
+  // own port does not offer one.
+  const offered = useMemo(() => palette.filter((entry) => {
+    if (!attachTo) return !isSubNodeType(entry);
+    if (attachTo.kind === 'tool') return entry.toolOutput;
+    return entry.parserOutput && !(attachTo.ownerIsParser && entry.parserInput);
+  }), [palette, attachTo]);
+
+  const hasSubNodes = !attachTo && palette.some(isSubNodeType);
+  const hiddenMatches = needle && !attachTo
+    ? palette.filter((entry) => isSubNodeType(entry) && scoreMatch(entry, needle) > 0)
+    : [];
+
   const groups = useMemo(() => {
-    const scored = palette
+    const scored = offered
       .map((entry) => ({ entry, score: scoreMatch(entry, needle) }))
       .filter((row) => row.score > 0)
       .sort((a, b) => b.score - a.score);
@@ -75,10 +96,10 @@ export function NodePanel({
       .map((group) => ({
         group,
         items: scored.filter((row) => row.entry.group === group).map((row) => row.entry),
-        total: palette.filter((e) => e.group === group).length,
+        total: offered.filter((e) => e.group === group).length,
       }))
       .filter((g) => g.items.length);
-  }, [palette, needle]);
+  }, [offered, needle]);
 
   const matchCount = groups.reduce((sum, g) => sum + g.items.length, 0);
 
@@ -110,12 +131,25 @@ export function NodePanel({
     <aside className="ca-nodes-panel" aria-label="Node panel">
       <div className="ca-nodes-head">
         <h2 className="ca-nodes-title heading-xxxsmall">
-          {connectFrom ? 'Add the next step' : 'Add nodes'}
+          {attachTo
+            ? (attachTo.kind === 'tool' ? 'Add a tool' : 'Add an output parser')
+            : (connectFrom ? 'Add the next step' : 'Add nodes')}
         </h2>
         <IconButton label="Hide node panel" onClick={onClose} size="small">
           <Icon name="panel-left" />
         </IconButton>
       </div>
+
+      {attachTo ? (
+        <div className="ca-nodes-connect body-xxsmall" role="status">
+          <span>
+            {'Attaches to '}
+            <strong>{attachTo.name}</strong>
+            {` · ${attachTo.kind === 'tool' ? 'Tools' : 'Output Parser'}`}
+          </span>
+          <Button variant="text" size="xsmall" onClick={onCancelConnect}>Cancel</Button>
+        </div>
+      ) : null}
 
       {connectFrom ? (
         <div className="ca-nodes-connect body-xxsmall" role="status">
@@ -142,7 +176,7 @@ export function NodePanel({
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
                 if (query) setQuery('');
-                else if (connectFrom) onCancelConnect();
+                else if (connectFrom || attachTo) onCancelConnect();
                 event.currentTarget.blur();
               }
               if (event.key === 'ArrowDown') {
@@ -165,10 +199,16 @@ export function NodePanel({
       <div className="ca-nodes-list" ref={listRef} onKeyDown={onListKeyDown}>
         {groups.length === 0 ? (
           <div className="ca-nodes-empty">
-            <p className="body-xsmall">No nodes match “{query}”.</p>
-            <Button variant="text-primary" size="xsmall" onClick={() => setQuery('')}>
-              Clear search
-            </Button>
+            <p className="body-xsmall">
+              {attachTo && !offered.length
+                ? `This task has no ${attachTo.kind === 'tool' ? 'tools' : 'output parsers'} to attach.`
+                : `No nodes match “${query}”.`}
+            </p>
+            {query ? (
+              <Button variant="text-primary" size="xsmall" onClick={() => setQuery('')}>
+                Clear search
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -224,8 +264,18 @@ export function NodePanel({
         })}
       </div>
 
+      {/* Searched for a tool or parser by name: say where they are instead. */}
+      {hiddenMatches.length ? (
+        <p className="ca-nodes-hidden body-xxsmall" role="status">
+          {`${hiddenMatches.map((e) => e.label).join(', ')} ${hiddenMatches.length === 1 ? 'attaches' : 'attach'} to an AI Agent: use the + under its Tools or Output Parser port.`}
+        </p>
+      ) : null}
+
       <p className="ca-nodes-foot body-xxsmall">
-        Click to add, or drag onto the canvas.
+        {attachTo
+          ? 'Click to attach, or drag onto the canvas and wire it up yourself.'
+          : 'Click to add, or drag onto the canvas.'}
+        {hasSubNodes ? ' Tools and output parsers: the + under an AI Agent.' : ''}
       </p>
     </aside>
   );

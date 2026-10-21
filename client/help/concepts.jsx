@@ -178,10 +178,11 @@ export const CONCEPTS = [
     body: (
       <>
         <p className="body-small">
-          A field holding a fixed value is just that value. Start it with{' '}
-          <code>=</code> and it becomes an <strong>expression</strong>: anything
-          inside <code>{'{{ }}'}</code> is evaluated against the current item, and
-          the rest is kept as literal text.
+          A field holding a fixed value is just that value. Click its{' '}
+          <strong>fx</strong> button and it becomes an <strong>expression</strong>:
+          anything inside <code>{'{{ }}'}</code> is evaluated against the current
+          item, and the rest is kept as literal text. (In the saved workflow an
+          expression starts with <code>=</code>, as below.)
         </p>
 
         <figure className="ca-help-example">
@@ -227,9 +228,17 @@ export const CONCEPTS = [
 
         <h3 className="heading-xsmall">Seeing what it resolves to</h3>
         <p className="body-small">
-          Every expression field shows its current result underneath as you type.
+          Every expression field shows its current result underneath as you type,
+          and marks each <code>{'{{ }}'}</code> span by what it gave: green when it
+          resolved, amber when it is <code>[undefined]</code>, red when it fails.
           That is the fastest way to work: get the resolved value right, then move
           on.
+        </p>
+        <p className="body-small">
+          For anything longer, the expand button next to <strong>fx</strong> opens
+          the expression full screen: the input fields on the left, the expression
+          with the data and functions you can click in, and the result on the
+          right — for any item, not only the first.
         </p>
         <p className="body-small">
           <code>[undefined]</code> means the path does not exist on this item. It
@@ -328,6 +337,13 @@ export const CONCEPTS = [
           actions.
         </p>
         <p className="body-small">
+          Tools and output parsers are not in the node panel: they attach to an
+          AI Agent rather than joining the flow. Click the <strong>+</strong> under
+          the agent&apos;s <strong>Tools</strong> or <strong>Output Parser</strong>{' '}
+          port to pick one, already attached — or drag down from the port and drop
+          on empty canvas to place it there.
+        </p>
+        <p className="body-small">
           <strong>Execute Workflow</strong> sits at the bottom of the canvas, and
           the logs bar under it reports how the last run went — open it to see
           every node&apos;s item counts and errors. After a run, each connection
@@ -374,8 +390,9 @@ export const CONCEPTS = [
           Three columns: the items arriving on the left, the parameters in the
           middle, the items produced on the right. The input panel is the fastest
           way to discover field names: in <strong>Schema</strong> view, click a
-          field to insert its path into the expression you are editing, or drag
-          it onto any field. <strong>Table</strong> shows every item side by side.
+          field to insert its path at the cursor of the field you were last in,
+          or drag it to the spot in any field where it should go. A fixed value
+          keeps its text and becomes an expression around it. <strong>Table</strong> shows every item side by side.
           The <strong>fx</strong> button on a field switches it between a fixed
           value and an expression.
         </p>

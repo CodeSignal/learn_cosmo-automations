@@ -20,10 +20,13 @@ import {
   removeConnection, removeCredential, removeNodes, renameNode, setNodeParameter,
   setNodesDisabled, updateCredential, updateNode, wouldCycle,
 } from './lib/graph.js';
-import { effectiveOutputs } from '../shared/node-ports.mjs';
+import { effectiveOutputs, subPortOf } from '../shared/node-ports.mjs';
 import { lastRunInput, nodesBefore } from '../shared/last-run-input.mjs';
 
 const EMPTY_GRAPH = { version: 1, nodes: [], connections: [], credentials: [] };
+
+/** Key presses that arrived while a dialog was open. */
+const modalOpenAtKeydown = new WeakSet();
 
 export function App() {
   const [scenario, setScenario] = useState(null);
@@ -45,6 +48,9 @@ export function App() {
   // output's "+" open it.
   const [panelOpen, setPanelOpen] = useState(false);
   const [connectFrom, setConnectFrom] = useState(null);
+  // When it was opened from an agent's Tools or Output Parser "+": the port the
+  // picked tool or parser attaches to. The panel then offers only those.
+  const [attachTo, setAttachTo] = useState(null);
   const [panelFocus, setPanelFocus] = useState(0);
   // Where the next node from the panel goes, when the panel was opened by
   // right-clicking the canvas: there, rather than after the rightmost node.
@@ -145,6 +151,15 @@ export function App() {
    */
   const handlePanelAdd = useCallback((entry) => {
     const current = graphRef.current;
+    const owner = attachTo && current.nodes.find((n) => n.id === attachTo.id);
+    if (owner) {
+      const { graph: withNode, node } = addNode(current, entry, attachTo.position || besideSubPort(current, owner, attachTo));
+      commit(addConnection(withNode, { from: node.id, fromOutput: 0, to: owner.id, toInput: attachTo.port }));
+      setSelectedIds([node.id]);
+      setAttachTo(null);
+      setPanelOpen(false);
+      return;
+    }
     const source = connectFrom && current.nodes.find((n) => n.id === connectFrom.id);
     if (!source) {
       handleAddNode(entry, addAt || undefined);
@@ -162,7 +177,7 @@ export function App() {
     commit(next);
     setSelectedIds([node.id]);
     setConnectFrom(null);
-  }, [connectFrom, addAt, commit, handleAddNode]);
+  }, [connectFrom, attachTo, addAt, commit, handleAddNode]);
 
   /**
    * Open the panel ready to add the next step after a node's output: from its
@@ -184,7 +199,27 @@ export function App() {
       portName: outputs.length > 1 ? outputs[port]?.name : null,
       position,
     });
+    setAttachTo(null);
     setAddAt(null);
+    setPanelOpen(true);
+    setPanelFocus((n) => n + 1);
+  }, []);
+
+  /**
+   * Open the panel to attach a tool or an output parser to an agent's port:
+   * from the "+" under the port (placed below it), or from a wire pulled down
+   * out of the port onto empty canvas (placed where it was dropped).
+   */
+  const handleAddSubNode = useCallback((nodeId, kind, position = null) => {
+    const node = graphRef.current.nodes.find((n) => n.id === nodeId);
+    const definition = node && definitionsRef.current[node.type];
+    const port = subPortOf(definition, kind);
+    if (port === null) return;
+    setConnectFrom(null);
+    setAddAt(null);
+    setAttachTo({
+      id: node.id, name: node.name, kind, port, position, ownerType: node.type, hasTools: Boolean(definition.toolInput),
+    });
     setPanelOpen(true);
     setPanelFocus((n) => n + 1);
   }, []);
@@ -192,6 +227,7 @@ export function App() {
   /** Open the panel to add a node — at `position` if one is given. */
   const requestAdd = useCallback((position = null) => {
     setConnectFrom(null);
+    setAttachTo(null);
     setAddAt(position);
     setPanelOpen(true);
     setPanelFocus((n) => n + 1);
@@ -441,12 +477,17 @@ export function App() {
         handleRedo();
         return;
       }
+      // A dialog over the node (credentials, the expression editor) closes on
+      // its own Escape; the node behind it stays open. The dialog has closed by
+      // the time the key reaches here, so whether one was open is noted first.
+      if (event.key === 'Escape' && modalOpenAtKeydown.has(event)) return;
       if (event.key === 'Escape' && openNodeId) {
         setOpenNodeId(null);
         return;
       }
-      if (event.key === 'Escape' && connectFrom && !typing) {
+      if (event.key === 'Escape' && (connectFrom || attachTo) && !typing) {
         setConnectFrom(null);
+        setAttachTo(null);
         return;
       }
 
@@ -465,10 +506,17 @@ export function App() {
         handleDeleteNodes(selectedRef.current);
       }
     };
+    const noteModal = (event) => {
+      if (document.querySelector('.modal-overlay.open')) modalOpenAtKeydown.add(event);
+    };
+    window.addEventListener('keydown', noteModal, true);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', noteModal, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [handleExecute, handleUndo, handleRedo, handleDuplicateNodes, handleDeleteNodes, openNodeId,
-    connectFrom]);
+    connectFrom, attachTo]);
 
   /* ── render ──────────────────────────────────────────────────────────── */
 
@@ -521,12 +569,15 @@ export function App() {
               palette={palette}
               open={panelOpen}
               onOpen={() => setPanelOpen(true)}
-              onClose={() => { setPanelOpen(false); setConnectFrom(null); setAddAt(null); }}
+              onClose={() => { setPanelOpen(false); setConnectFrom(null); setAttachTo(null); setAddAt(null); }}
               onAdd={handlePanelAdd}
               connectFrom={connectFrom
                 ? { name: connectFrom.name, port: connectFrom.portName }
                 : null}
-              onCancelConnect={() => setConnectFrom(null)}
+              attachTo={attachTo
+                ? { name: attachTo.name, kind: attachTo.kind, ownerIsParser: Boolean(definitions[attachTo.ownerType]?.parserOutput) }
+                : null}
+              onCancelConnect={() => { setConnectFrom(null); setAttachTo(null); }}
               focusToken={panelFocus}
             />
 
@@ -548,6 +599,7 @@ export function App() {
               onOpenNode={(id) => { setSelectedIds([id]); setOpenNodeId(id); }}
               onExecuteNode={(id) => handleExecute(id)}
               onAddAfter={handleAddAfter}
+              onAddSubNode={handleAddSubNode}
               onRequestAdd={requestAdd}
               fitToken={fitToken}
               panelOpen={panelOpen}
@@ -695,6 +747,18 @@ function normalise(graph) {
 function besideOutput(source, { port, portCount }) {
   const spread = portCount > 1 ? (port - (portCount - 1) / 2) * 160 : 0;
   return { x: source.position[0] + 220, y: source.position[1] + spread };
+}
+
+/**
+ * Where a tool or parser attached to `owner` goes: below it, the way sub-nodes
+ * hang under an agent. Tools sit under the Tools port and further tools fan out
+ * to the left; a parser sits to the right of them, under its own port.
+ */
+function besideSubPort(graph, owner, { kind, port, hasTools }) {
+  const [x, y] = owner.position;
+  if (kind === 'parser') return { x: hasTools ? x + 160 : x, y: y + 200 };
+  const tools = graph.connections.filter((c) => c.to === owner.id && (c.toInput || 0) === port).length;
+  return { x: x - tools * 160, y: y + 200 };
 }
 
 /** Place a keyboard-added node to the right of the rightmost existing one. */

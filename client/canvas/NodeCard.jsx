@@ -22,8 +22,8 @@ const PORT_PITCH = 24;
  */
 export const NodeCard = memo(({ data, selected }) => {
   const {
-    definition, node, record, summary, live, connectedOutputs, outputCounts,
-    onOpen, onExecute, onToggleDisabled, onDelete, onAddAfter, running,
+    definition, node, record, summary, live, connectedOutputs, connectedInputs, offers, outputCounts,
+    onOpen, onExecute, onToggleDisabled, onDelete, onAddAfter, onAddSubNode, running,
   } = data;
   const status = live === 'running' ? 'running' : (record ? record.status : null);
   const inputs = definition.inputs;
@@ -44,6 +44,12 @@ export const NodeCard = memo(({ data, selected }) => {
   const subOutput = toolOutput || Boolean(definition.parserOutput);
   const parserPort = inputs + (toolInput ? 1 : 0);
   const isTrigger = (definition.group === 'trigger' || inputs === 0) && !subOutput;
+  // A sub-node port the task has nothing for is left off entirely — no label,
+  // nothing to drag from — unless something is already wired into it.
+  const toolsConnected = toolInput && connectedInputs.has(inputs);
+  const parserConnected = parserInput && connectedInputs.has(parserPort);
+  const showTools = toolInput && (offers.tool || toolsConnected);
+  const showParser = parserInput && (offers.parser || parserConnected);
 
   /**
    * A node in a loop body shows the totals across every pass, and a node that
@@ -242,31 +248,29 @@ export const NodeCard = memo(({ data, selected }) => {
           tile's bottom edge, so a tool's wire comes up to it without running
           through this node's name.
         */}
-        {toolInput || parserInput ? (
+        {showTools || showParser ? (
           <div className="ca-node-subports">
-            {toolInput ? (
-              <div className="ca-node-tools">
-                <span className="ca-node-tools-label body-xxsmall">Tools</span>
-                <Handle
-                  type="target"
-                  position={Position.Bottom}
-                  id={`in-${inputs}`}
-                  className="ca-handle-tool"
-                  aria-label={`${node.name} tools input`}
-                />
-              </div>
+            {showTools ? (
+              <SubPort
+                label="Tools"
+                handleId={`in-${inputs}`}
+                nodeName={node.name}
+                connected={toolsConnected}
+                // An agent takes any number of tools, so its "+" stays.
+                many
+                onAdd={offers.tool ? () => onAddSubNode('tool') : null}
+                what="a tool"
+              />
             ) : null}
-            {parserInput ? (
-              <div className="ca-node-tools">
-                <span className="ca-node-tools-label body-xxsmall">Output Parser</span>
-                <Handle
-                  type="target"
-                  position={Position.Bottom}
-                  id={`in-${parserPort}`}
-                  className="ca-handle-tool"
-                  aria-label={`${node.name} output parser input`}
-                />
-              </div>
+            {showParser ? (
+              <SubPort
+                label="Output Parser"
+                handleId={`in-${parserPort}`}
+                nodeName={node.name}
+                connected={parserConnected}
+                onAdd={offers.parser ? () => onAddSubNode('parser') : null}
+                what="an output parser"
+              />
             ) : null}
           </div>
         ) : null}
@@ -274,6 +278,60 @@ export const NodeCard = memo(({ data, selected }) => {
     </div>
   );
 });
+
+/**
+ * A port an agent takes sub-nodes on, under its caption: the label, the handle
+ * a sub-node's wire comes up to, and a "+" to pick one. Free, the "+" hangs
+ * below on a short stub, the way an output's does to the right. Taken, a port
+ * that holds one parser shows nothing more; the Tools port keeps a small "+"
+ * beside its label, since an agent can have many tools. A port the task offers
+ * nothing for is not drawn at all (see `showTools`), unless something is already
+ * wired into it — then it keeps its handle but has no "+" (`onAdd` null).
+ */
+function SubPort({
+  label, handleId, nodeName, connected, many = false, onAdd, what,
+}) {
+  const add = (event) => { event.stopPropagation(); onAdd(); };
+  return (
+    <div className={`ca-node-tools${connected ? ' is-connected' : ''}`}>
+      <span className="ca-node-tools-label body-xxsmall">
+        {label}
+        {connected && many && onAdd ? (
+          <button
+            type="button"
+            className="ca-node-sub-add ca-node-sub-add-inline nodrag"
+            onClick={add}
+            aria-label={`Add ${what} to ${nodeName}`}
+            title={`Add ${what}`}
+          >
+            <Icon name="plus" size={10} />
+          </button>
+        ) : null}
+      </span>
+      <Handle
+        type="target"
+        position={Position.Bottom}
+        id={handleId}
+        className="ca-handle-tool"
+        aria-label={`${nodeName} ${label.toLowerCase()} input`}
+      />
+      {connected || !onAdd ? null : (
+        <div className="ca-node-sub-stub nodrag">
+          <span className="ca-node-sub-line" aria-hidden="true" />
+          <button
+            type="button"
+            className="ca-node-sub-add"
+            onClick={add}
+            aria-label={`Add ${what} to ${nodeName}`}
+            title={`Add ${what} — or drag from the port to place it`}
+          >
+            <Icon name="plus" size={12} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Evenly spaced down the tile's height, so N ports never bunch up. */
 function portOffset(index, count, height) {

@@ -10,7 +10,7 @@ import { CanvasEdge } from './CanvasEdge.jsx';
 import { ContextMenu } from './ContextMenu.jsx';
 import { Icon } from '../ui/Icon.jsx';
 import { summariseNode } from '../../shared/summarise.mjs';
-import { effectiveOutputs } from '../../shared/node-ports.mjs';
+import { effectiveOutputs, subPortKind } from '../../shared/node-ports.mjs';
 
 const NODE_TYPES = { automation: NodeCard };
 const EDGE_TYPES = { automation: CanvasEdge };
@@ -41,7 +41,7 @@ function CanvasInner({
   graph, palette, trace, liveStatus, selectedIds, running,
   onAddNode, onMoveNodes, onConnect, onDisconnect,
   onSelectionChange, onOpenNode, onDeleteNodes, onDuplicateNodes, onSetDisabled,
-  onExecuteNode, onAddAfter, onRequestAdd, fitToken, panelOpen,
+  onExecuteNode, onAddAfter, onAddSubNode, onRequestAdd, fitToken, panelOpen,
 }) {
   const wrapperRef = useRef(null);
   const { screenToFlowPosition, fitView } = useReactFlow();
@@ -94,6 +94,21 @@ function CanvasInner({
     return byNode;
   }, [graph.connections]);
 
+  /** Whether the task offers anything to attach to an agent's Tools and Output Parser ports. */
+  const offers = useMemo(() => ({
+    tool: palette.some((p) => p.toolOutput),
+    parser: palette.some((p) => p.parserOutput),
+  }), [palette]);
+
+  /** Which input ports of each node already have a connection. */
+  const connectedInputs = useMemo(() => {
+    const byNode = {};
+    for (const c of graph.connections) {
+      (byNode[c.to] = byNode[c.to] || new Set()).add(c.toInput || 0);
+    }
+    return byNode;
+  }, [graph.connections]);
+
   /** What the document says the nodes should look like right now. */
   const desiredNodes = useMemo(() => graph.nodes.map((node) => {
     const definition = definitions[node.type] || {
@@ -115,6 +130,8 @@ function CanvasInner({
         // Port names, so connections can keep their labels off them.
         ports: definition.toolOutput || definition.parserOutput ? [] : effectiveOutputs(definition, node).map((o) => o.name),
         connectedOutputs: connectedOutputs[node.id] || EMPTY_SET,
+        connectedInputs: connectedInputs[node.id] || EMPTY_SET,
+        offers,
         outputCounts: record && record.outputsByPort
           ? record.outputsByPort.map((p) => p.count)
           : null,
@@ -123,10 +140,11 @@ function CanvasInner({
         onToggleDisabled: () => onSetDisabled([node.id], !node.disabled),
         onDelete: () => onDeleteNodes([node.id]),
         onAddAfter: (port) => onAddAfter(node.id, port),
+        onAddSubNode: (kind) => onAddSubNode(node.id, kind),
       },
     };
   }), [graph.nodes, definitions, recordsByNodeId, liveStatus, selected, running, connectedOutputs,
-    onOpenNode, onExecuteNode, onSetDisabled, onDeleteNodes, onAddAfter]);
+    connectedInputs, offers, onOpenNode, onExecuteNode, onSetDisabled, onDeleteNodes, onAddAfter, onAddSubNode]);
 
   /** A subagent wire: drawn dashed, never labelled with an item count. */
   const isToolWire = useCallback((c) => {
@@ -277,15 +295,20 @@ function CanvasInner({
     const start = connectStart.current;
     connectStart.current = null;
     if (!state || state.isValid || !state.fromNode || !state.fromHandle) return;
-    if (state.fromHandle.type !== 'source') return;
     if (!event.target?.classList?.contains('react-flow__pane')) return;
     const point = 'changedTouches' in event ? event.changedTouches[0] : event;
     if (start && Math.hypot(point.clientX - start.x, point.clientY - start.y) < 8) return;
     const at = screenToFlowPosition({ x: point.clientX, y: point.clientY });
-    onAddAfter(state.fromNode.id, portIndex(state.fromHandle.id), {
-      x: at.x - DROP_OFFSET.x, y: at.y - DROP_OFFSET.y,
-    });
-  }, [screenToFlowPosition, onAddAfter]);
+    const position = { x: at.x - DROP_OFFSET.x, y: at.y - DROP_OFFSET.y };
+    if (state.fromHandle.type === 'source') {
+      onAddAfter(state.fromNode.id, portIndex(state.fromHandle.id), position);
+      return;
+    }
+    // Pulled down out of an agent's Tools or Output Parser port: pick what to attach there.
+    const node = graph.nodes.find((n) => n.id === state.fromNode.id);
+    const kind = node && subPortKind(definitions[node.type], portIndex(state.fromHandle.id));
+    if (kind && offers[kind]) onAddSubNode(node.id, kind, position);
+  }, [screenToFlowPosition, onAddAfter, onAddSubNode, graph.nodes, definitions, offers]);
 
   const handleConnect = useCallback((params) => {
     onConnect({
