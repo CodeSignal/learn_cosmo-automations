@@ -1,22 +1,29 @@
 name: Build and Release
 
-# Inherited from learn_bespoke-template and adapted. Two changes matter:
+# Inherited from learn_bespoke-template and adapted:
 #
-#   1. The tarball contents. The template ships `dist/ package.json server.js
-#      node_modules/`, which is everything a vanilla-JS sim needs. Ours would be
-#      DEAD ON ARRIVAL with that list: server.js requires engine/ and shared/,
-#      the parse script requires grading/, and the server falls back to a bundled
-#      scenario. There is a test asserting the list stays complete.
+#   1. The tarball is packed, not tarred from the tree. `npm run pack` bundles
+#      every entry point a session runs into one minified file each — no
+#      node_modules — so it downloads and unpacks in a fraction of the time.
+#      verify-release.js boots the result exactly as a session would.
 #   2. Tests and the grading experiment gate the release. The whole point of this
 #      simulation is that grading is trustworthy, so shipping a build whose
 #      experiment fails would be worse than not shipping.
-
+#   3. A build from main is a PRE-release. It reaches staging only, through the
+#      floating `prerelease` tag, and goes to production when someone promotes it
+#      to latest (see README, "Releases").
 on:
   push:
     branches: [ main ]
 
 permissions:
   contents: write
+
+# One release at a time, so two quick merges cannot interleave their updates of
+# the floating `prerelease` tag. Queued, not cancelled.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   build-and-release:
@@ -57,33 +64,10 @@ jobs:
         run: npm run rehearse:showcase
 
 
-      - name: Install production dependencies only
-        run: npm ci --production
-
-      # The last three are for the task generator, not the candidate: it runs in
-      # the session and proves the task it wrote is solvable with `npm run
-      # validate`, reading the README and the annotated example to write it.
-      #
-      # Every path here is required at runtime in a session. `npm run
-      # verify:release` checks this list against the server's actual dependency
-      # closure, so adding an engine directory cannot silently break a release.
-      - name: Create release tarball
-        run: |
-          tar -czf release.tar.gz \
-            dist/ \
-            node_modules/ \
-            package.json \
-            server.js \
-            parse_automation_solution.js \
-            run.js \
-            engine/ \
-            live/ \
-            grading/ \
-            shared/ \
-            scenarios/ \
-            scripts/validate-scenario.js \
-            scenario.example.jsonc \
-            README.md
+      # One minified file per entry point, the built client, the scenarios and
+      # the QuickJS WASM. See scripts/pack-release.js.
+      - name: Pack the release
+        run: npm run pack
 
       - name: Verify the tarball can actually run a session
         run: node scripts/verify-release.js release.tar.gz
@@ -91,19 +75,58 @@ jobs:
       - name: Upload build artifact (for workflow logs)
         uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: dist
+          name: release
+          path: release.tar.gz
 
-      - name: Create GitHub Release and upload asset
+      # A pre-release: it never becomes /latest by itself, so production keeps
+      # the build it has until this one is promoted.
+      - name: Create GitHub pre-release and upload asset
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: v${{ github.run_number }}
           name: Release ${{ github.run_number }}
           body: |
-            Latest build from main branch.
+            Build from main (${{ github.sha }}). Staging gets it through the floating `prerelease` tag.
+            Promote it to production by marking it as the latest release.
           artifacts: release.tar.gz
           allowUpdates: false
           draft: false
-          prerelease: false
-          makeLatest: true
+          prerelease: true
+          makeLatest: false
+
+      # The floating `prerelease` release always carries the newest build, so
+      # staging can download it from one fixed URL. It stays a pre-release
+      # itself, so it never takes /latest. Skipped if a newer release was cut
+      # while this run waited in the queue.
+      - name: Update the floating prerelease tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_TAG: v${{ github.run_number }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          newest="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '[.[] | select(.draft == false and .tag_name != "prerelease")][0].tag_name // empty')"
+          if [[ "${newest}" != "${SOURCE_TAG}" ]]; then
+            echo "Skipping: ${SOURCE_TAG} is not the newest release (${newest:-none})."
+            exit 0
+          fi
+
+          git tag -f prerelease "${SOURCE_SHA}"
+          git push origin refs/tags/prerelease --force
+
+          notes="Floating alias for the newest build. Currently \`${SOURCE_TAG}\` (\`${SOURCE_SHA}\`).
+
+          Production: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/release.tar.gz
+          Staging:    https://github.com/${GITHUB_REPOSITORY}/releases/download/prerelease/release.tar.gz"
+
+          if gh release view prerelease >/dev/null 2>&1; then
+            gh release edit prerelease --prerelease --target "${SOURCE_SHA}" \
+              --title "Newest build (staging)" --notes "${notes}"
+            gh release upload prerelease release.tar.gz --clobber
+          else
+            gh release create prerelease release.tar.gz --prerelease --target "${SOURCE_SHA}" \
+              --title "Newest build (staging)" --notes "${notes}"
+          fi

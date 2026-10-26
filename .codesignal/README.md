@@ -14,13 +14,15 @@ diff. The base task stores them at `.codesignal/setup.sh` and
   code, the `config.json` the task delivers as its project file
   (`cosmo-automations/config.json`), and everything the simulation writes:
   `solution.json`, `execution.json`, `activity.log`.
-- `setup.sh` downloads the latest release into that directory, unpacks it and
-  starts the server on port 3000. It ends on a foreground server start — the
+- `setup.sh` downloads the release into that directory — the latest on
+  production, the newest pre-release on staging (`$APP_ENVIRONMENT`; see the
+  main README, "Releases") — unpacks it and starts the server on port 3000. It ends on a foreground server start — the
   session does not expect it to return.
 - `run_solution.sh` changes into that directory and prints the grading report.
 
-The release unpacks flat: `package.json` and the server sit at the top of the
-directory, and `dist/` holds only the built client.
+The release unpacks flat: `package.json` and the bundled server sit at the top
+of the directory, every script is one self-contained file at its usual path,
+there is no `node_modules`, and `dist/` holds only the built client.
 
 **No readiness check.** If the candidate never ran their workflow,
 `execution.json` is absent, every assertion FAILs and the signature is MISSING —
@@ -45,7 +47,7 @@ directory must be.
 
 On Submit, the platform runs the command from a private copy of that directory,
 with the candidate's files at `$CODESIGNAL_WORKSPACE`. `grader.sh` downloads the
-latest release into that private directory and runs its
+same release the session runs into that private directory and runs its
 [`grading/score.js`](../grading/score.js), which re-runs the saved workflow and
 checks it exactly as `run_solution.sh` does, prints
 `{ totalScore, maxScore, breakoutScores }` with one point per assertion, and

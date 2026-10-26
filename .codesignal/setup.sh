@@ -10,12 +10,20 @@
 mkdir -p cosmo-automations
 cd cosmo-automations
 
-wget https://github.com/CodeSignal/learn_cosmo-automations/releases/latest/download/release.tar.gz -O release.tar.gz
+# Production runs the latest release; staging runs the newest build, which a
+# build from main becomes before anyone promotes it (README, "Releases").
+RELEASE_URL="https://github.com/CodeSignal/learn_cosmo-automations/releases/latest/download/release.tar.gz"
+if [ "$APP_ENVIRONMENT" = "staging" ]; then
+  RELEASE_URL="https://github.com/CodeSignal/learn_cosmo-automations/releases/download/prerelease/release.tar.gz"
+fi
+
+wget "$RELEASE_URL" -O release.tar.gz
 tar -xzf release.tar.gz && rm release.tar.gz
 
 # One deliberate difference: NO `cd dist`. The template's release keeps
-# package.json inside dist/; ours unpacks flat, with dist/ holding only the built
-# client, so `cd dist && npm run start:prod` would fail here.
+# package.json inside dist/; ours unpacks flat — one bundled file per entry point,
+# no node_modules — with dist/ holding only the built client, so
+# `cd dist && npm run start:prod` would fail here.
 #
 # Blocking is correct: every deployed bespoke base task ends on a foreground
 # server start, so the platform does not expect this script to return.

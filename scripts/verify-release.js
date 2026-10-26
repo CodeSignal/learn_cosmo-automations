@@ -27,7 +27,7 @@ const PORT = Number(process.env.VERIFY_PORT || 3399);
 
 const tarball = path.resolve(process.argv[2] || 'release.tar.gz');
 if (!fs.existsSync(tarball)) {
-  fail(`tarball not found: ${tarball}\nBuild one with:\n  npm run build && tar -czf release.tar.gz …`);
+  fail(`tarball not found: ${tarball}\nBuild one with:\n  npm run build && npm run pack`);
 }
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-release-'));
@@ -59,21 +59,19 @@ async function main() {
       + 'Rebuild with COPYFILE_DISABLE=1 tar --no-mac-metadata …');
   }
 
-  // Everything the server or the parse script reaches for at runtime.
+  // Every entry point, bundled, and what they read at runtime. See scripts/pack-release.js.
   const required = [
-    'dist/index.html', 'package.json', 'server.js', 'parse_automation_solution.js',
-    'engine/index.js', 'engine/sandbox.js', 'engine/scheduler.js',
-    'grading/assertions.js', 'grading/format.js', 'grading/score.js', 'live/openai.js',
-    'shared/summarise.mjs', 'shared/node-docs.mjs', 'shared/node-mode.mjs',
+    'dist/index.html', 'package.json', 'server.js', 'parse_automation_solution.js', 'run.js',
+    'grading/score.js', 'quickjs.wasm',
     // a bundled dev scenario for the server's local fallback
     'scenarios',
-    'node_modules/quickjs-emscripten/package.json',
-    'node_modules/ws/package.json',
-    // the task generator's toolkit — see build-release.yml
+    // the task generator's toolkit
     'scripts/validate-scenario.js', 'scenario.example.jsonc', 'README.md',
   ];
   const missing = required.filter((f) => !fs.existsSync(path.join(work, f)));
   if (missing.length) fail(`the tarball is missing runtime files:\n    ${missing.join('\n    ')}`);
+  // Every entry point carries its dependencies; a node_modules here means the pack regressed.
+  if (fs.existsSync(path.join(work, 'node_modules'))) fail('the tarball ships node_modules; build it with `npm run pack`');
   step(`all ${required.length} runtime paths present`);
 
   // A session gets scenario.json in the working directory; mimic that with

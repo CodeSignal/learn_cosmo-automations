@@ -14,7 +14,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.join(__dirname, '..');
+const { packageRoot } = require('./package-root');
+
+const ROOT = packageRoot();
 const DIR = path.join(ROOT, 'scenarios');
 
 /** @returns {Array<{name, dir, scenarioPath, referencePath, hasReference}>} */
