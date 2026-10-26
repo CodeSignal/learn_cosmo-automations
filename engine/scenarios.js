@@ -71,6 +71,10 @@ const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
  * Learn tasks keep them inline: there the FAIL detail is a teaching feature, and
  * a hidden file would be missing if a practice is ever graded on Run.
  *
+ * The command grader (grading/score.js) passes `explicitFile` instead: its
+ * hidden assertions sit in the grader's own directory, never in the workspace,
+ * and a named file that is missing is an error rather than a fallback.
+ *
  * The file is either an array of assertions or `{ "assertions": [...] }`. When
  * present it wins over anything inline. Returns where they came from, so the
  * caller can say so — or the error, so grading can fail loudly instead of
@@ -78,9 +82,15 @@ const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
  */
 const ASSERTIONS_FILE = 'assertions.json';
 
-function attachAssertions(scenario, scenarioPath) {
-  const file = path.join(path.dirname(path.resolve(scenarioPath)), ASSERTIONS_FILE);
-  if (!fs.existsSync(file)) return { source: scenario.assertions ? 'inline' : 'none' };
+function attachAssertions(scenario, scenarioPath, explicitFile = null) {
+  // The command grader brings its own file, from its private grader directory.
+  const file = explicitFile
+    ? path.resolve(explicitFile)
+    : path.join(path.dirname(path.resolve(scenarioPath)), ASSERTIONS_FILE);
+  if (!fs.existsSync(file)) {
+    if (explicitFile) return { source: 'file', file, error: `${path.basename(file)} was not found` };
+    return { source: scenario.assertions ? 'inline' : 'none' };
+  }
   try {
     const raw = readJson(file);
     const list = Array.isArray(raw) ? raw : raw && raw.assertions;
