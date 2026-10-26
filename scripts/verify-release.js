@@ -63,7 +63,7 @@ async function main() {
   const required = [
     'dist/index.html', 'package.json', 'server.js', 'parse_automation_solution.js',
     'engine/index.js', 'engine/sandbox.js', 'engine/scheduler.js',
-    'grading/assertions.js', 'grading/format.js', 'live/openai.js',
+    'grading/assertions.js', 'grading/format.js', 'grading/score.js', 'live/openai.js',
     'shared/summarise.mjs', 'shared/node-docs.mjs', 'shared/node-mode.mjs',
     // a bundled dev scenario for the server's local fallback
     'scenarios',
@@ -136,6 +136,22 @@ async function main() {
   }
   if (!/^VALID$/m.test(stdout)) fail(`trace signature was not VALID:\n${stdout}`);
   step('graded the reference solution: RESULT: PASS, signature VALID');
+
+  // The command grader, as Submit runs it: from a directory of its own, with the
+  // session's files at $CODESIGNAL_WORKSPACE.
+  const graderDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-grader-'));
+  const reportPath = path.join(graderDir, 'report.md');
+  const scored = JSON.parse(execFileSync('node', [path.join(work, 'grading', 'score.js')], {
+    cwd: graderDir,
+    encoding: 'utf8',
+    env: { ...process.env, CODESIGNAL_WORKSPACE: work, SCORE_REPORT_PATH: reportPath },
+  }));
+  if (!scored.maxScore || scored.totalScore !== scored.maxScore) {
+    fail(`the command grader did not give the reference solution full marks: ${JSON.stringify(scored)}`);
+  }
+  if (!fs.existsSync(reportPath)) fail('the command grader wrote no report to $SCORE_REPORT_PATH');
+  fs.rmSync(graderDir, { recursive: true, force: true });
+  step(`command grader scored the reference solution ${scored.totalScore}/${scored.maxScore}, report written`);
 
   /**
    * The platform reads `activity.log` to see inside a bespoke UI, so a release

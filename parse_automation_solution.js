@@ -79,13 +79,32 @@ async function main() {
  * with the fresh run, or the signature is MISMATCH. There is nothing to forge
  * and no secret to keep.
  */
-async function grade({ scenarioFile, solutionFile, executionFile }) {
+async function grade(files) {
+  const result = await evaluate(files);
+  if (!result.ok) return bareFailure(result.reason);
+  return formatReport(result);
+}
+
+/**
+ * The grading verdict as data: the fresh run, every assertion's result and the
+ * trace signature — what grade() prints and grading/score.js scores. Or
+ * `{ ok: false, reason }` when there is no scenario to grade against.
+ *
+ * `assertionsFile` names the assertions explicitly (the command grader's
+ * hidden copy); without it they come from beside the scenario, or inline.
+ * `runUnsaved` runs a workflow that was never run in the simulation, headless,
+ * instead of failing every assertion: the command grader scores what was
+ * submitted, and the signature still says MISSING.
+ */
+async function evaluate({
+  scenarioFile, solutionFile, executionFile, assertionsFile = null, runUnsaved = false,
+}) {
   const scenario = readJson(scenarioFile);
   if (!scenario.ok) {
     // Nothing can be graded without a scenario. Fail loudly and structurally.
-    return bareFailure(`scenario.json could not be read (${scenario.error})`);
+    return { ok: false, reason: `scenario.json could not be read (${scenario.error})` };
   }
-  const assertionSource = attachAssertions(scenario.value, path.resolve(ROOT, scenarioFile));
+  const assertionSource = attachAssertions(scenario.value, path.resolve(ROOT, scenarioFile), assertionsFile);
 
   const solution = readJson(solutionFile);
   const execution = readJson(executionFile);
@@ -97,23 +116,18 @@ async function grade({ scenarioFile, solutionFile, executionFile }) {
   const notes = [];
   if (!execution.ok) {
     signature = 'MISSING';
-    trace = emptyTrace(`execution.json could not be read (${execution.error}). `
-      + 'Run the workflow in the simulation before submitting.');
+    trace = runUnsaved
+      ? await freshRun(scenario.value, graph, {})
+      : emptyTrace(`execution.json could not be read (${execution.error}). `
+        + 'Run the workflow in the simulation before submitting.');
   } else {
     const saved = execution.value;
-    try {
-      // Reproduce the run the way it was made. The simulation's runs are
-      // interactive and record their decisions; run.js's are headless and take
-      // the scenario's. Dropping `decisions` from the file gains nothing: the
-      // headless answers are the author's, and approving is the candidate's own
-      // call either way.
-      trace = await run(scenario.value, graph, {
-        interactive: Boolean(saved.decisions),
-        decisions: saved.decisions || {},
-      });
-    } catch (err) {
-      trace = emptyTrace(`the workflow could not be re-run for grading (${err.message})`);
-    }
+    // Reproduce the run the way it was made. The simulation's runs are
+    // interactive and record their decisions; run.js's are headless and take
+    // the scenario's. Dropping `decisions` from the file gains nothing: the
+    // headless answers are the author's, and approving is the candidate's own
+    // call either way.
+    trace = await freshRun(scenario.value, graph, saved);
 
     if (!saved.graphHash) {
       signature = 'MISSING';
@@ -157,9 +171,21 @@ async function grade({ scenarioFile, solutionFile, executionFile }) {
     });
   }
 
-  return formatReport({
-    scenario: scenario.value, graph, trace, assertions, signature, notes,
-  });
+  return {
+    ok: true, scenario: scenario.value, graph, trace, assertions, signature, notes, assertionSource,
+  };
+}
+
+/** Run the workflow again, with the decisions of the saved run if there was one. */
+async function freshRun(scenario, graph, saved) {
+  try {
+    return await run(scenario, graph, {
+      interactive: Boolean(saved.decisions),
+      decisions: saved.decisions || {},
+    });
+  } catch (err) {
+    return emptyTrace(`the workflow could not be re-run for grading (${err.message})`);
+  }
 }
 
 /** Whether any answer in a saved run came from a live model. */
@@ -216,4 +242,4 @@ function bareFailure(reason) {
 
 if (require.main === module) main();
 
-module.exports = { grade };
+module.exports = { grade, evaluate };
