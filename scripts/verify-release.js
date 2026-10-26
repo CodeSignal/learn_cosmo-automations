@@ -140,19 +140,19 @@ async function main() {
   if (!/^VALID$/m.test(stdout)) fail(`trace signature was not VALID:\n${stdout}`);
   step('graded the reference solution: RESULT: PASS, signature VALID');
 
-  // The command grader, as Submit runs it: from a directory of its own, with the
-  // session's files at $CODESIGNAL_WORKSPACE.
+  // The command grader, as grader.sh runs it on Submit: from a directory of its
+  // own, told where the session's files are and where its output goes.
   const graderDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-grader-'));
   const reportPath = path.join(graderDir, 'report.md');
-  const scored = JSON.parse(execFileSync('node', [path.join(work, 'grading', 'score.js')], {
+  const scored = JSON.parse(execFileSync('node', [path.join(work, 'grading', 'score.js'),
+    '--workspace', work, '--report-path', reportPath, '--score-path', 'STDOUT'], {
     cwd: graderDir,
     encoding: 'utf8',
-    env: { ...process.env, CODESIGNAL_WORKSPACE: work, SCORE_REPORT_PATH: reportPath },
   }));
   if (!scored.maxScore || scored.totalScore !== scored.maxScore) {
     fail(`the command grader did not give the reference solution full marks: ${JSON.stringify(scored)}`);
   }
-  if (!fs.existsSync(reportPath)) fail('the command grader wrote no report to $SCORE_REPORT_PATH');
+  if (!fs.existsSync(reportPath)) fail('the command grader wrote no report to --report-path');
   fs.rmSync(graderDir, { recursive: true, force: true });
   step(`command grader scored the reference solution ${scored.totalScore}/${scored.maxScore}, report written`);
 

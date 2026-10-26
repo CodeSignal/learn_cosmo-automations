@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * The command grader: grading/score.js, run as Submit runs it — from a grader
- * directory of its own, with the session's files at $CODESIGNAL_WORKSPACE —
- * printing a score as JSON and writing a Markdown report.
+ * The scorer: grading/score.js, run with explicit paths as the command
+ * grader's grader.sh runs it, and with its defaults as Learn would — printing
+ * or writing a score with one point per assertion, and a Markdown report.
  */
 
 const test = require('node:test');
@@ -52,13 +52,14 @@ async function submission({
   return { base, sim, grader };
 }
 
-function score({ base, grader }) {
+/** Run score.js as the command grader's grader.sh does: explicit paths, the score on STDOUT. */
+function score({ base, grader }, extraArgs = []) {
   const reportPath = path.join(base, 'report.md');
-  const res = spawnSync('node', [SCORE], {
-    cwd: grader,
-    encoding: 'utf8',
-    env: { ...process.env, CODESIGNAL_WORKSPACE: path.join(base, 'workspace'), SCORE_REPORT_PATH: reportPath },
-  });
+  const key = path.join(grader, 'assertions.json');
+  const res = spawnSync('node', [SCORE,
+    '--workspace', path.join(base, 'workspace'),
+    ...(fs.existsSync(key) ? ['--assertions', key] : []),
+    '--report-path', reportPath, '--score-path', 'STDOUT', ...extraArgs], { cwd: grader, encoding: 'utf8' });
   return {
     status: res.status,
     stderr: res.stderr,
@@ -110,7 +111,7 @@ test('ATTACK: a score or report written into the workspace changes nothing', asy
   assert.strictEqual(out.json.maxScore, EU.assertions.length);
 });
 
-test('hidden assertions in the grader directory replace the ones in config.json', async () => {
+test('an answer key passed with --assertions replaces the one in config.json', async () => {
   const { assertions, ...visible } = EU;
   const out = score(await submission({ scenario: visible, graph: EU_REF, hidden: assertions.slice(0, 2) }));
   assert.strictEqual(out.status, 0, out.stderr);
@@ -160,4 +161,45 @@ test('ATTACK: candidate text in the report cannot add rows, links or markup', as
   const fence = report.slice(report.indexOf('## Workflow and run')).match(/^(`{3,})text$/m)[1];
   assert.ok(fence.length > 3);
   assert.strictEqual(report.trimEnd().split('\n').pop(), fence);
+});
+
+test('a hidden assertions.json beside config.json is the answer key, as a task ships it', async () => {
+  const { assertions, ...visible } = EU;
+  const s = await submission({ scenario: visible, graph: EU_REF, extra: { 'assertions.json': JSON.stringify(assertions) } });
+  const out = score(s);
+  assert.strictEqual(out.status, 0, out.stderr);
+  assert.deepStrictEqual([out.json.totalScore, out.json.maxScore], [assertions.length, assertions.length]);
+});
+
+test('with no arguments it scores the current directory into report.md and score.json', async () => {
+  const s = await submission({ scenario: EU, graph: EU_REF });
+  const res = spawnSync('node', [SCORE], { cwd: s.sim, encoding: 'utf8', env: { PATH: process.env.PATH } });
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.strictEqual(res.stdout, '');
+  const written = JSON.parse(fs.readFileSync(path.join(s.sim, 'score.json'), 'utf8'));
+  assert.strictEqual(written.totalScore, EU.assertions.length);
+  assert.match(fs.readFileSync(path.join(s.sim, 'report.md'), 'utf8'), /\*\*Score:/);
+});
+
+test('a grader.sh from before the arguments still works through its environment', async () => {
+  const { assertions, ...visible } = EU;
+  const s = await submission({ scenario: visible, graph: EU_REF, hidden: assertions });
+  const reportPath = path.join(s.base, 'legacy.md');
+  const res = spawnSync('node', [SCORE], {
+    cwd: s.grader,
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, CODESIGNAL_WORKSPACE: path.join(s.base, 'workspace'), SCORE_REPORT_PATH: reportPath },
+  });
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.strictEqual(JSON.parse(res.stdout).totalScore, assertions.length);
+  assert.ok(fs.existsSync(reportPath));
+});
+
+test('bad arguments are refused rather than guessed at', async () => {
+  const s = await submission({ scenario: EU, graph: EU_REF });
+  const run = (...args) => spawnSync('node', [SCORE, ...args], { cwd: s.sim, encoding: 'utf8' });
+  assert.match(run('--nope', 'x').stderr, /unknown argument --nope/);
+  assert.match(run('--report-path').stderr, /--report-path needs a value/);
+  assert.match(run('--report-path', 'STDOUT', '--score-path', 'STDOUT').stderr, /cannot both go to STDOUT/);
+  assert.strictEqual(run('--report-path=STDOUT').status, 0, 'a = form works too');
 });
