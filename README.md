@@ -62,8 +62,8 @@ a hidden `assertions.json` that exists only at Submit, and set `grading.private`
 to withhold expected values from FAIL lines.
 
 [`grading/score.js`](grading/score.js) turns the same verdict into a score with
-one point per assertion and a Markdown report, written wherever its
-`--report-path` and `--score-path` say (by default `report.md` and `score.json`).
+one point per assertion and a Markdown report, always as two files
+(`score.json` and `report.md`, or wherever `--score-path` and `--report-path` say).
 A Hire task runs it on Submit through the platform's command grader; see
 [`.codesignal/README.md`](.codesignal/README.md#scoring-on-submit).
 

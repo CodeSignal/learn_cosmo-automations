@@ -48,16 +48,16 @@ directory must be.
 On Submit, the platform runs the command from a private copy of that directory,
 with the candidate's files at `$CODESIGNAL_WORKSPACE`. `grader.sh` downloads the
 same release the session runs into that private directory — once; a later run
-reuses it — and runs its [`grading/score.js`](../grading/score.js) with this
-platform's paths: `--workspace "$CODESIGNAL_WORKSPACE" --report-path
-"$SCORE_REPORT_PATH" --score-path STDOUT`. `score.js` re-runs the saved workflow
-and checks it exactly as `run_solution.sh` does, and writes
-`{ totalScore, maxScore, breakoutScores }` with one point per assertion and a
-Markdown report — the score, a table of the checks, and the full grading report.
+reuses it — and runs its [`grading/score.js`](../grading/score.js) on
+`$CODESIGNAL_WORKSPACE`. `score.js` re-runs the saved workflow and checks it
+exactly as `run_solution.sh` does, and writes `score.json` —
+`{ totalScore, maxScore, breakoutScores }`, one point per assertion — and
+`report.md` — the score, a table of the checks, and the full grading report.
+`grader.sh` copies the report to `$SCORE_REPORT_PATH` and prints the score.
 
 `score.js` knows nothing about the command grader: run with no arguments beside
-the simulation, as Learn would, it scores the current directory into
-`report.md` and `score.json`. See its header for every flag.
+the simulation, as Learn would, it scores the current directory into the same
+two files. See its header for every flag.
 
 - **Nothing in the workspace is trusted** but the saved workflow itself. The
   grading code is a fresh download, not the copy in the workspace, and the score
