@@ -44,15 +44,21 @@ Then add [`grader/grader.sh`](grader/grader.sh) to the base task as
 directory must be.
 
 On Submit, the platform runs the command from a private copy of that directory,
-with the candidate's files at `$CODESIGNAL_WORKSPACE`. `grader.sh` runs
+with the candidate's files at `$CODESIGNAL_WORKSPACE`. `grader.sh` downloads the
+latest release into that private directory and runs its
 [`grading/score.js`](../grading/score.js), which re-runs the saved workflow and
 checks it exactly as `run_solution.sh` does, prints
 `{ totalScore, maxScore, breakoutScores }` with one point per assertion, and
 writes a Markdown report — the score, a table of the checks, and the full
 grading report — to `$SCORE_REPORT_PATH`.
 
-- **Nothing the session wrote is trusted.** The score is worked out at Submit
-  from the saved workflow; a score or report file in the workspace is ignored.
+- **Nothing in the workspace is trusted** but the saved workflow itself. The
+  grading code is a fresh download, not the copy in the workspace, and the score
+  is worked out at Submit; a score or report file in the workspace is ignored.
+  A fix to grading ships with a new release, with no question to republish.
+- **It needs the network at Submit.** If the download fails, `grader.sh` exits
+  non-zero and the submission goes to manual scoring — it never falls back to
+  the workspace's copy.
 - **The submitted workflow is what counts.** It is scored by running it at
   Submit, so a workflow never run in the simulation, or changed after its last
   run, scores what it does. The report notes it, for the reviewer.
@@ -63,15 +69,10 @@ grading report — to `$SCORE_REPORT_PATH`.
   or a crash make the grader exit non-zero, and the platform marks the
   submission for manual scoring instead.
 
-The grader runs the simulation's code from the workspace, which the candidate
-reaches only through the simulation — bespoke tasks give them no terminal or
-file panel. Keep it that way in the task's layout settings.
-
-To try it by hand, from any empty directory:
+To try it by hand, copy `grader.sh` into an empty directory and run it there:
 
 ```sh
-CODESIGNAL_WORKSPACE=/usercode/FILESYSTEM SCORE_REPORT_PATH=report.md \
-  node /usercode/FILESYSTEM/cosmo-automations/grading/score.js
+CODESIGNAL_WORKSPACE=/usercode/FILESYSTEM SCORE_REPORT_PATH=report.md sh grader.sh
 ```
 
 ## Live AI answers
