@@ -47,12 +47,17 @@ directory must be.
 
 On Submit, the platform runs the command from a private copy of that directory,
 with the candidate's files at `$CODESIGNAL_WORKSPACE`. `grader.sh` downloads the
-same release the session runs into that private directory and runs its
-[`grading/score.js`](../grading/score.js), which re-runs the saved workflow and
-checks it exactly as `run_solution.sh` does, prints
-`{ totalScore, maxScore, breakoutScores }` with one point per assertion, and
-writes a Markdown report — the score, a table of the checks, and the full
-grading report — to `$SCORE_REPORT_PATH`.
+same release the session runs into that private directory — once; a later run
+reuses it — and runs its [`grading/score.js`](../grading/score.js) with this
+platform's paths: `--workspace "$CODESIGNAL_WORKSPACE" --report-path
+"$SCORE_REPORT_PATH" --score-path STDOUT`. `score.js` re-runs the saved workflow
+and checks it exactly as `run_solution.sh` does, and writes
+`{ totalScore, maxScore, breakoutScores }` with one point per assertion and a
+Markdown report — the score, a table of the checks, and the full grading report.
+
+`score.js` knows nothing about the command grader: run with no arguments beside
+the simulation, as Learn would, it scores the current directory into
+`report.md` and `score.json`. See its header for every flag.
 
 - **Nothing in the workspace is trusted** but the saved workflow itself. The
   grading code is a fresh download, not the copy in the workspace, and the score
@@ -64,9 +69,11 @@ grading report — to `$SCORE_REPORT_PATH`.
 - **The submitted workflow is what counts.** It is scored by running it at
   Submit, so a workflow never run in the simulation, or changed after its last
   run, scores what it does. The report notes it, for the reviewer.
-- **Hidden assertions.** An `assertions.json` in the grader directory (hidden,
-  like everything there) replaces the assertions in `config.json`, so they never
-  reach the candidate's workspace.
+- **Hidden assertions.** A task ships its answer key as
+  `hidden_cosmo-automations/assertions.json`: exported beside `config.json` as a
+  hidden, read-only file the candidate cannot open, and read by the grader in
+  place of any assertions in `config.json`. An `assertions.json` in the grader
+  directory works too, passed with `--assertions`.
 - **A broken task is not a 0.** No scenario, unreadable or missing assertions,
   or a crash make the grader exit non-zero, and the platform marks the
   submission for manual scoring instead.
