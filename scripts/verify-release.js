@@ -81,7 +81,12 @@ async function main() {
     .find((f) => fs.existsSync(f));
   if (!bundled) fail('the tarball bundles no scenario for the server to fall back to');
   fs.copyFileSync(bundled, path.join(work, 'scenario.json'));
-  const referenceFile = path.join(path.dirname(bundled), 'reference_solution.json');
+  // The release carries no solutions (see pack-release.js); the repository's is the reference.
+  const scenarioName = path.basename(path.dirname(bundled));
+  const referenceFile = path.join(ROOT, 'scenarios', scenarioName, 'reference_solution.json');
+  const answers = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    .split('\n').filter((entry) => /(^|\/)(reference_solution\.json|variants\/)/.test(entry));
+  if (answers.length) fail(`the tarball carries solutions a candidate could read, e.g. ${answers[0]}`);
 
   step(`booting: IS_PRODUCTION=true node server.js (port ${PORT})`);
   child = spawn('node', ['server.js'], {
@@ -178,9 +183,14 @@ async function main() {
    * wrote is solvable before anyone sees it. If `npm run validate` cannot run
    * from the tarball, generation silently loses its only correctness check.
    */
-  const validated = execFileSync('npm', ['run', '--silent', 'validate', bundled], {
+  // As the generator does: its own scenario and reference solution, side by side, outside the release.
+  const proof = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-proof-'));
+  fs.copyFileSync(bundled, path.join(proof, 'config.json'));
+  fs.copyFileSync(referenceFile, path.join(proof, 'reference_solution.json'));
+  const validated = execFileSync('npm', ['run', '--silent', 'validate', path.join(proof, 'config.json')], {
     cwd: work, encoding: 'utf8',
   });
+  fs.rmSync(proof, { recursive: true, force: true });
   if (!/solvable|✓/.test(validated)) fail(`npm run validate did not prove the bundled scenario:\n${validated}`);
   step(`npm run validate works from the tarball (${path.basename(path.dirname(bundled))})`);
 

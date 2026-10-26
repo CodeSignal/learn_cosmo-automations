@@ -57,6 +57,16 @@ test('every script a session or the task generator runs is packed', () => {
   }
 });
 
+test('no solution travels with the release', () => {
+  const { shipped } = require('../scripts/pack-release');
+  const at = (...p) => path.join(ROOT, 'scenarios', ...p);
+  assert.ok(shipped(at('eu-orders', 'scenario.json')), 'scenarios themselves are shipped');
+  assert.ok(!shipped(at('eu-orders', 'reference_solution.json')), 'a reference solution is the answer');
+  assert.ok(!shipped(at('eu-orders', 'variants')), 'graded variants include correct solutions');
+  assert.ok(!shipped(at('eu-orders', 'variants', 'correct-1.json')));
+  assert.ok(!shipped(at('eu-orders', 'out', 'report.txt')));
+});
+
 test('code a bundle carries finds its files through packageRoot, not its own directory', () => {
   // These read a path next to themselves on purpose, and sit where their bundle does.
   const ALLOWED = new Set(['server.js', 'scripts/validate-scenario.js', 'engine/package-root.js']);

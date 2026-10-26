@@ -10,7 +10,8 @@
  * grading, the QuickJS bindings, ws — into a single file at its usual path, so
  * the base task's scripts work unchanged: `npm run start:prod`,
  * `node parse_automation_solution.js`, `node grading/score.js`, `npm run
- * validate`. Beside them go the built client (dist/), the bundled scenarios,
+ * validate`. Beside them go the built client (dist/), the bundled scenarios
+ * (without their solutions),
  * the task generator's annotated example and README, and the QuickJS WASM once,
  * which every bundle loads (engine/sandbox.js).
  *
@@ -38,6 +39,20 @@ const ENTRY_POINTS = [
 const FILES = ['dist', 'scenarios', 'scenario.example.jsonc', 'README.md'];
 
 const WASM = require.resolve('@jitl/quickjs-wasmfile-release-sync/wasm');
+
+/**
+ * Whether a file under FILES goes into the release. The release unpacks into
+ * the candidate's workspace, so no answer may travel with it: a bundled
+ * scenario's reference solution and its graded variants are the solved
+ * workflow, and a task built on that scenario would hand it over. Grading
+ * experiment captures (out/) are evidence for the repo, not runtime.
+ */
+function shipped(src) {
+  const parts = src.split(path.sep);
+  const name = parts[parts.length - 1];
+  return !parts.includes('out') && !parts.includes('variants')
+    && name !== 'reference_solution.json' && !name.startsWith('._');
+}
 
 async function main() {
   const esbuild = require('esbuild');
@@ -71,11 +86,7 @@ async function main() {
   }
 
   for (const rel of FILES) {
-    // Grading-experiment captures (scenarios/*/out) are evidence for the repo, not runtime.
-    fs.cpSync(path.join(ROOT, rel), path.join(PACK, rel), {
-      recursive: true,
-      filter: (src) => !src.split(path.sep).includes('out') && !path.basename(src).startsWith('._'),
-    });
+    fs.cpSync(path.join(ROOT, rel), path.join(PACK, rel), { recursive: true, filter: shipped });
   }
   fs.copyFileSync(WASM, path.join(PACK, 'quickjs.wasm'));
 
@@ -124,4 +135,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { ENTRY_POINTS, FILES };
+module.exports = { ENTRY_POINTS, FILES, shipped };
