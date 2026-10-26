@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * The scorer: grading/score.js, run with explicit paths as the command
- * grader's grader.sh runs it, and with its defaults as Learn would — printing
- * or writing a score with one point per assertion, and a Markdown report.
+ * The scorer: grading/score.js, run as the command grader's grader.sh runs it
+ * and with its defaults as Learn would — always writing a score with one point
+ * per assertion (score.json) and a Markdown report (report.md).
  */
 
 const test = require('node:test');
@@ -52,19 +52,18 @@ async function submission({
   return { base, sim, grader };
 }
 
-/** Run score.js as the command grader's grader.sh does: explicit paths, the score on STDOUT. */
-function score({ base, grader }, extraArgs = []) {
-  const reportPath = path.join(base, 'report.md');
+/** Run score.js as grader.sh does: in its own directory, told where the workspace is. */
+function score({ base, grader }) {
   const key = path.join(grader, 'assertions.json');
-  const res = spawnSync('node', [SCORE,
-    '--workspace', path.join(base, 'workspace'),
-    ...(fs.existsSync(key) ? ['--assertions', key] : []),
-    '--report-path', reportPath, '--score-path', 'STDOUT', ...extraArgs], { cwd: grader, encoding: 'utf8' });
+  for (const f of ['report.md', 'score.json']) fs.rmSync(path.join(grader, f), { force: true });
+  const res = spawnSync('node', [SCORE, '--workspace', path.join(base, 'workspace'),
+    ...(fs.existsSync(key) ? ['--assertions', key] : [])], { cwd: grader, encoding: 'utf8' });
+  const read = (f) => (fs.existsSync(path.join(grader, f)) ? fs.readFileSync(path.join(grader, f), 'utf8') : null);
   return {
     status: res.status,
     stderr: res.stderr,
-    json: res.status === 0 ? JSON.parse(res.stdout) : null,
-    report: fs.existsSync(reportPath) ? fs.readFileSync(reportPath, 'utf8') : null,
+    json: res.status === 0 ? JSON.parse(read('score.json')) : null,
+    report: read('report.md'),
   };
 }
 
@@ -181,6 +180,15 @@ test('with no arguments it scores the current directory into report.md and score
   assert.match(fs.readFileSync(path.join(s.sim, 'report.md'), 'utf8'), /\*\*Score:/);
 });
 
+test('--report-path and --score-path write the two files elsewhere', async () => {
+  const s = await submission({ scenario: EU, graph: EU_REF });
+  const res = spawnSync('node', [SCORE, '--workspace', s.sim,
+    '--report-path', path.join(s.base, 'r.md'), '--score-path=' + path.join(s.base, 's.json')], { cwd: s.grader, encoding: 'utf8' });
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(s.base, 's.json'), 'utf8')).maxScore, EU.assertions.length);
+  assert.ok(fs.existsSync(path.join(s.base, 'r.md')));
+});
+
 test('a grader.sh from before the arguments still works through its environment', async () => {
   const { assertions, ...visible } = EU;
   const s = await submission({ scenario: visible, graph: EU_REF, hidden: assertions });
@@ -200,6 +208,4 @@ test('bad arguments are refused rather than guessed at', async () => {
   const run = (...args) => spawnSync('node', [SCORE, ...args], { cwd: s.sim, encoding: 'utf8' });
   assert.match(run('--nope', 'x').stderr, /unknown argument --nope/);
   assert.match(run('--report-path').stderr, /--report-path needs a value/);
-  assert.match(run('--report-path', 'STDOUT', '--score-path', 'STDOUT').stderr, /cannot both go to STDOUT/);
-  assert.strictEqual(run('--report-path=STDOUT').status, 0, 'a = form works too');
 });

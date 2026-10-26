@@ -5,22 +5,22 @@
  * Score a submission: a score with one point per assertion, and a Markdown report.
  *
  *   node grading/score.js [--workspace <dir>] [--assertions <file>]
- *                         [--report-path <file|STDOUT>] [--score-path <file|STDOUT>]
+ *                         [--report-path <file>] [--score-path <file>]
  *
- * Defaults suit running it beside the simulation, as Learn would: the workspace
- * is the current directory, the report goes to `report.md` and the score to
- * `score.json` there. A platform with its own contract passes its paths; the
- * CodeSignal command grader, for one, wants the report at $SCORE_REPORT_PATH
- * and the score on STDOUT — see .codesignal/grader/grader.sh. Nothing here
- * knows about any platform.
+ * It always writes two files, by default `report.md` and `score.json` in the
+ * current directory, and the workspace defaults to the current directory too —
+ * which suits running it beside the simulation, as Learn would. A platform
+ * hands the files on however it needs to; the CodeSignal command grader copies
+ * the report to $SCORE_REPORT_PATH and prints the score — see
+ * .codesignal/grader/grader.sh. Nothing here knows about any platform.
  *
  *   --workspace    the candidate's files: the simulation's directory, or a
  *                  directory holding it as `cosmo-automations/`
  *   --assertions   the answer key, when it is kept apart from the workspace;
  *                  otherwise `assertions.json` beside config.json, or the
  *                  assertions inside config.json
- *   --report-path  where the Markdown report goes, or STDOUT
- *   --score-path   where `{ totalScore, maxScore, breakoutScores }` goes, or STDOUT
+ *   --report-path  where the Markdown report is written
+ *   --score-path   where `{ totalScore, maxScore, breakoutScores }` is written
  *
  * The score is worked out here, never read from a file the session wrote: the
  * workflow the candidate saved is run again and judged by the task's
@@ -46,7 +46,6 @@ const { scoreOf, markdownReport } = require('./score-report');
 const SIMULATION_DIR = 'cosmo-automations';
 /** Must match parse_automation_solution.js and server.js. */
 const CONFIG_NAMES = ['config.json', 'scenario.json'];
-const STDOUT = 'STDOUT';
 
 /** Where the files are: the workspace's simulation directory, or the workspace itself. */
 function locate({ workspace, assertions = null }) {
@@ -96,9 +95,10 @@ function parseArgs(argv) {
 }
 
 /**
- * The command grader's paths, from its environment, for a grader.sh copied
- * into a question before score.js took arguments: it runs score.js with none.
- * Only when no argument at all is given; remove once those copies pass theirs.
+ * The command grader's contract, from its environment, for a grader.sh copied
+ * into a question before score.js took arguments: it runs score.js with none
+ * and expects the report at $SCORE_REPORT_PATH and the score on STDOUT. Only
+ * when no argument at all is given; remove once those copies are republished.
  */
 function legacyGraderOptions(env) {
   if (!env.SCORE_REPORT_PATH) return null;
@@ -108,13 +108,8 @@ function legacyGraderOptions(env) {
     workspace: env.CODESIGNAL_WORKSPACE,
     assertions: fs.existsSync(key) ? key : null,
     reportPath: env.SCORE_REPORT_PATH,
-    scorePath: STDOUT,
+    scoreToStdout: true,
   };
-}
-
-function emit(target, text) {
-  if (target === STDOUT) process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
-  else fs.writeFileSync(target, text);
 }
 
 async function main() {
@@ -125,16 +120,15 @@ async function main() {
     scorePath: 'score.json',
     ...((argv.length === 0 && legacyGraderOptions(process.env)) || parseArgs(argv)),
   };
-  if (options.reportPath === STDOUT && options.scorePath === STDOUT) {
-    throw new Error('the report and the score cannot both go to STDOUT');
-  }
   const graded = await scoreSubmission(options);
   if (graded.error) {
     process.stderr.write(`Cannot grade this task: ${graded.error}\n`);
     process.exit(1);
   }
-  emit(options.reportPath, graded.report);
-  emit(options.scorePath, JSON.stringify(graded.score));
+  fs.writeFileSync(options.reportPath, graded.report);
+  const score = `${JSON.stringify(graded.score)}\n`;
+  if (options.scoreToStdout) process.stdout.write(score);
+  else fs.writeFileSync(options.scorePath, score);
 }
 
 if (require.main === module) {

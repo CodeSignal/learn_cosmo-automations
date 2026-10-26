@@ -8,8 +8,8 @@
 # It grades with a fresh copy of the simulation, downloaded here, never with the
 # code in the workspace: the candidate cannot touch what runs, and a fix ships
 # with a new release instead of a republished question. score.js re-runs the
-# saved workflow, checks it, and is told where this platform wants its output:
-# the report at $SCORE_REPORT_PATH, the score on STDOUT.
+# saved workflow, checks it, and writes report.md and score.json, which this
+# script hands to the platform.
 #
 # The answer key is the task's hidden assertions.json beside config.json, or an
 # assertions.json in this directory if the base task keeps one here.
@@ -39,9 +39,14 @@ if [ ! -f release/grading/score.js ]; then
   rm -f release.tar.gz
 fi
 
+# score.js writes report.md and score.json here; the platform wants the report
+# at $SCORE_REPORT_PATH and the score on STDOUT. If score.js fails, set -e stops
+# before either is handed on, and the platform asks for a manual score.
+rm -f report.md score.json
 if [ -f assertions.json ]; then
-  exec node release/grading/score.js --workspace "$CODESIGNAL_WORKSPACE" --assertions "$PWD/assertions.json" \
-    --report-path "$SCORE_REPORT_PATH" --score-path STDOUT
+  node release/grading/score.js --workspace "$CODESIGNAL_WORKSPACE" --assertions "$PWD/assertions.json"
+else
+  node release/grading/score.js --workspace "$CODESIGNAL_WORKSPACE"
 fi
-exec node release/grading/score.js --workspace "$CODESIGNAL_WORKSPACE" \
-  --report-path "$SCORE_REPORT_PATH" --score-path STDOUT
+cp report.md "$SCORE_REPORT_PATH"
+cat score.json

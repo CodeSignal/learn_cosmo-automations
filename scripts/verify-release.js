@@ -141,18 +141,15 @@ async function main() {
   step('graded the reference solution: RESULT: PASS, signature VALID');
 
   // The command grader, as grader.sh runs it on Submit: from a directory of its
-  // own, told where the session's files are and where its output goes.
+  // own, told where the session's files are; it writes report.md and score.json there.
   const graderDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-grader-'));
   const reportPath = path.join(graderDir, 'report.md');
-  const scored = JSON.parse(execFileSync('node', [path.join(work, 'grading', 'score.js'),
-    '--workspace', work, '--report-path', reportPath, '--score-path', 'STDOUT'], {
-    cwd: graderDir,
-    encoding: 'utf8',
-  }));
+  execFileSync('node', [path.join(work, 'grading', 'score.js'), '--workspace', work], { cwd: graderDir });
+  const scored = JSON.parse(fs.readFileSync(path.join(graderDir, 'score.json'), 'utf8'));
   if (!scored.maxScore || scored.totalScore !== scored.maxScore) {
     fail(`the command grader did not give the reference solution full marks: ${JSON.stringify(scored)}`);
   }
-  if (!fs.existsSync(reportPath)) fail('the command grader wrote no report to --report-path');
+  if (!fs.existsSync(reportPath)) fail('the command grader wrote no report.md');
   fs.rmSync(graderDir, { recursive: true, force: true });
   step(`command grader scored the reference solution ${scored.totalScore}/${scored.maxScore}, report written`);
 
