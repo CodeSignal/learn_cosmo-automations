@@ -23,9 +23,9 @@
  *
  * ── Design notes ────────────────────────────────────────────────────────────
  *
- * **Loading is async, evaluation is not.** `getQuickJS()` has to be awaited once
- * to load the WASM; after that `getQuickJSSync()` returns the module and every
- * evaluation is synchronous. That is what lets the expression evaluator keep its
+ * **Loading is async, evaluation is not.** `initSandbox()` has to be awaited once
+ * to load the WASM; after that the module is held here and every evaluation is
+ * synchronous. That is what lets the expression evaluator keep its
  * synchronous signature, which matters because it is called from inside a
  * per-item loop in the scheduler.
  *
@@ -40,21 +40,36 @@
  * *inside* the isolate, operating on the injected data.
  */
 
-const { getQuickJS, getQuickJSSync } = require('quickjs-emscripten');
+const fs = require('fs');
+const path = require('path');
+const { newQuickJSWASMModuleFromVariant, newVariant, RELEASE_SYNC } = require('quickjs-emscripten');
+const { packageRoot } = require('./package-root');
 
 const DEFAULT_TIMEOUT_MS = 100;
 
-let loaded = false;
+/** The WASM file a release ships beside package.json (scripts/pack-release.js). */
+const RELEASE_WASM = 'quickjs.wasm';
+
+let QuickJS = null;
+
+/**
+ * Where the WASM comes from. A release has no node_modules — every entry point is
+ * one bundled file — so it carries the WASM once, at its root, and every bundle
+ * loads that copy. In a checkout the package finds its own.
+ */
+function wasmVariant() {
+  const shipped = path.join(packageRoot(), RELEASE_WASM);
+  return fs.existsSync(shipped) ? newVariant(RELEASE_SYNC, { wasmLocation: shipped }) : RELEASE_SYNC;
+}
 
 /** Load the WASM module. Idempotent; must be awaited once before evaluating. */
 async function initSandbox() {
-  if (loaded) return;
-  await getQuickJS();
-  loaded = true;
+  if (QuickJS) return;
+  QuickJS = await newQuickJSWASMModuleFromVariant(wasmVariant());
 }
 
 function isSandboxReady() {
-  return loaded;
+  return Boolean(QuickJS);
 }
 
 /**
@@ -154,12 +169,11 @@ function runCodeInIsolate(code, data, options = {}) {
  * @returns {{ok: true, value: *} | {ok: false, error: string, syntax?: boolean}}
  */
 function evaluateInIsolate(source, data, options = {}) {
-  if (!loaded) {
+  if (!QuickJS) {
     return { ok: false, error: 'Expression sandbox is not initialised (await initSandbox()).' };
   }
 
   const timeoutMs = options.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : options.timeoutMs;
-  const QuickJS = getQuickJSSync();
   const runtime = QuickJS.newRuntime();
 
   // Hard stop. Checked by the interpreter between operations, so it interrupts
@@ -240,7 +254,7 @@ function evaluateInIsolate(source, data, options = {}) {
       context.dispose();
       runtime.dispose();
     } catch {
-      loaded = false; // force a fresh module load on the next evaluation
+      QuickJS = null; // force a fresh module load on the next evaluation
     }
   }
 }

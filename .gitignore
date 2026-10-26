@@ -27,3 +27,4 @@ docs/media/
 
 # Local editor/agent tooling
 .claude/
+pack/

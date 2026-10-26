@@ -16,7 +16,12 @@
 # score — rather than falling back to the workspace's copy.
 set -eu
 
+# The same build the session ran: the newest on staging, the latest release
+# elsewhere (see setup.sh).
 RELEASE_URL="https://github.com/CodeSignal/learn_cosmo-automations/releases/latest/download/release.tar.gz"
+if [ "${APP_ENVIRONMENT:-}" = "staging" ]; then
+  RELEASE_URL="https://github.com/CodeSignal/learn_cosmo-automations/releases/download/prerelease/release.tar.gz"
+fi
 
 rm -rf release release.tar.gz
 mkdir release

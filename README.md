@@ -66,6 +66,26 @@ A task can also score itself on Submit with the platform's command grader:
 one point per assertion and a Markdown report. See
 [`.codesignal/README.md`](.codesignal/README.md#scoring-on-submit).
 
+## Releases
+
+Every merge to `main` that passes the tests and the grading experiment is packed
+(`npm run pack`: one minified file per entry point, no `node_modules`) and
+published as a **pre-release**, `vN`. It also moves the floating `prerelease`
+release, so there are two download URLs:
+
+| | URL |
+|---|---|
+| Production | `https://github.com/CodeSignal/learn_cosmo-automations/releases/latest/download/release.tar.gz` |
+| Staging | `https://github.com/CodeSignal/learn_cosmo-automations/releases/download/prerelease/release.tar.gz` |
+
+The base task's `setup.sh` and `grader/grader.sh` pick between them with
+`$APP_ENVIRONMENT`, so a build reaches staging first. Once it is tested there,
+promote it to production by making it the latest release:
+
+```sh
+gh release edit vN --prerelease=false --latest
+```
+
 ## Documentation
 
 | | |

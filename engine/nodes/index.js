@@ -20,9 +20,6 @@
  * scheduler owns expression evaluation so every node gets it for free.
  */
 
-const fs = require('fs');
-const path = require('path');
-
 const registry = new Map();
 
 function register(def) {
@@ -63,16 +60,22 @@ const { compileNodeSpec } = require('./declarative');
  * The coded nodes it may not, and that distinction is the whole design: an
  * integration is a detail of one task, the item model is not.
  */
-const LIBRARY_DIR = path.join(__dirname, 'library');
+/*
+ * Listed rather than read from the directory: a release bundles this module into
+ * one file per entry point, and a bundle has no `library/` beside it to read.
+ * `require` of a JSON file is bundled in. A test fails if a file in library/ is
+ * missing here, so dropping in a new example still cannot be forgotten.
+ */
+const LIBRARY = [
+  require('./library/airtable.json'),
+  require('./library/gmail.json'),
+  require('./library/google-sheets.json'),
+  require('./library/postgres.json'),
+  require('./library/slack.json'),
+];
 const libraryTypes = new Set();
 
-// Dotfiles are skipped: a tarball built on macOS carries AppleDouble `._slack.json`
-// metadata files beside the real ones, and parsing one as a node spec crashed the
-// server at startup — seen in a local session, where nothing else was wrong.
-const isNodeSpec = (f) => f.endsWith('.json') && !f.startsWith('.');
-
-for (const file of fs.readdirSync(LIBRARY_DIR).filter(isNodeSpec).sort()) {
-  const spec = JSON.parse(fs.readFileSync(path.join(LIBRARY_DIR, file), 'utf8'));
+for (const spec of LIBRARY) {
   registry.set(spec.type, compileNodeSpec(spec));
   libraryTypes.add(spec.type);
 }
