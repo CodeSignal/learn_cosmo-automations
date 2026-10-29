@@ -50,11 +50,10 @@ test('every script a session or the task generator runs is packed', () => {
   for (const file of ['dist', 'scenarios', 'scenario.example.jsonc', 'README.md']) {
     assert.ok(FILES.includes(file), `${file} must be copied into the release`);
   }
-  for (const script of ['run_solution.sh', 'grader/grader.sh']) {
-    const body = fs.readFileSync(path.join(SESSION, script), 'utf8');
-    const invoked = [...body.matchAll(/node\s+"?(?:\$\S*\/)?([\w./-]+\.js)/g)].map((m) => m[1].replace(/^release\//, ''));
-    for (const file of invoked) assert.ok(ENTRY_POINTS.includes(file), `${script} runs ${file}, which is not packed`);
-  }
+  // grader.sh runs the standalone scorer instead; see the test on it below.
+  const body = fs.readFileSync(path.join(SESSION, 'run_solution.sh'), 'utf8');
+  const invoked = [...body.matchAll(/node\s+"?(?:\$\S*\/)?([\w./-]+\.js)/g)].map((m) => m[1]);
+  for (const file of invoked) assert.ok(ENTRY_POINTS.includes(file), `run_solution.sh runs ${file}, which is not packed`);
 });
 
 test('no solution travels with the release', () => {
@@ -105,7 +104,26 @@ test('a build from main is a pre-release, and the floating prerelease tag follow
   assert.match(yaml, /prerelease: true/, 'a main build must not reach production by itself');
   assert.match(yaml, /makeLatest: false/);
   assert.match(yaml, /git tag -f prerelease/, 'staging downloads the floating prerelease tag');
-  assert.match(yaml, /gh release upload prerelease release\.tar\.gz --clobber/);
+  assert.match(yaml, /gh release upload prerelease release\.tar\.gz scorer\/score\.js --clobber/);
+});
+
+test('each release carries the standalone scorer, and the command grader downloads only that', () => {
+  const yaml = fs.readFileSync(WORKFLOW, 'utf8');
+  assert.match(yaml, /artifacts: release\.tar\.gz,scorer\/score\.js/);
+  assert.match(yaml, /artifactErrorsFailBuild: true/, 'a release without its scorer must fail, not ship');
+  assert.match(yaml, /verify-release\.js release\.tar\.gz scorer\/score\.js/);
+  const grader = fs.readFileSync(path.join(SESSION, 'grader', 'grader.sh'), 'utf8');
+  assert.match(grader, /releases\/latest\/download\/score\.js/);
+  assert.match(grader, /releases\/download\/prerelease\/score\.js/);
+  assert.doesNotMatch(grader, /release\.tar\.gz|tar -x/, 'the grader never unpacks the tarball');
+});
+
+test('only the standalone scorer carries the WASM inside it', () => {
+  const sandbox = fs.readFileSync(path.join(ROOT, 'engine', 'sandbox.js'), 'utf8');
+  assert.match(sandbox, /typeof __QUICKJS_WASM_BASE64__ !== 'undefined'/);
+  const pack = fs.readFileSync(path.join(ROOT, 'scripts', 'pack-release.js'), 'utf8');
+  assert.strictEqual(pack.match(/__QUICKJS_WASM_BASE64__/g).length, 1, 'defined for one bundle only');
+  assert.match(pack, /bundle\('grading\/score\.js', SCORER/);
 });
 
 test('the declared licence matches the LICENSE file', () => {

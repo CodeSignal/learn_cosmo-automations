@@ -23,7 +23,7 @@
     "record": "node scripts/record-fixtures.js",
     "record:video": "node scripts/record-demo.mjs",
     "verify:release": "node scripts/verify-release.js",
-    "release:local": "npm run build && npm run pack && node scripts/verify-release.js release.tar.gz",
+    "release:local": "npm run build && npm run pack && node scripts/verify-release.js release.tar.gz scorer/score.js",
     "validate": "node scripts/validate-scenario.js"
   },
   "keywords": [

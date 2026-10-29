@@ -15,6 +15,10 @@
  * the task generator's annotated example and README, and the QuickJS WASM once,
  * which every bundle loads (engine/sandbox.js).
  *
+ * The scorer is also packed on its own, with the WASM inside it, as
+ * scorer/score.js: the command grader downloads that one file instead of the
+ * tarball (see .codesignal/grader/grader.sh). CI attaches it to the release.
+ *
  * `npm run verify:release` then boots the tarball the way a session does.
  */
 
@@ -25,6 +29,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const PACK = path.join(ROOT, 'pack');
 const TARBALL = path.join(ROOT, 'release.tar.gz');
+const SCORER = path.join(ROOT, 'scorer', 'score.js');
 
 /** What a session or the task generator runs. Each becomes one file at the same path. */
 const ENTRY_POINTS = [
@@ -62,28 +67,35 @@ async function main() {
   fs.rmSync(PACK, { recursive: true, force: true });
   fs.mkdirSync(PACK);
 
-  for (const entry of ENTRY_POINTS) {
-    await esbuild.build({
-      absWorkingDir: ROOT,
-      entryPoints: [entry],
-      outfile: path.join(PACK, entry),
-      bundle: true,
-      platform: 'node',
-      format: 'cjs',
-      target: 'node22',
-      minify: true,
-      // Error messages and the report name functions; keep the names readable.
-      keepNames: true,
-      legalComments: 'none',
-      // ws's optional native speed-ups; it runs without them.
-      external: ['bufferutil', 'utf-8-validate'],
-      // The QuickJS loader is written as ESM and asks for import.meta.url, which
-      // a CommonJS bundle does not have: give it this file's URL.
-      define: { 'import.meta.url': '__bundleUrl' },
-      banner: { js: "const __bundleUrl = require('url').pathToFileURL(__filename).href;" },
-      logLevel: 'warning',
-    });
-  }
+  const bundle = (entry, outfile, define = {}) => esbuild.build({
+    absWorkingDir: ROOT,
+    entryPoints: [entry],
+    outfile,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    minify: true,
+    // Error messages and the report name functions; keep the names readable.
+    keepNames: true,
+    legalComments: 'none',
+    // ws's optional native speed-ups; it runs without them.
+    external: ['bufferutil', 'utf-8-validate'],
+    // The QuickJS loader is written as ESM and asks for import.meta.url, which
+    // a CommonJS bundle does not have: give it this file's URL.
+    define: { 'import.meta.url': '__bundleUrl', ...define },
+    banner: { js: "const __bundleUrl = require('url').pathToFileURL(__filename).href;" },
+    logLevel: 'warning',
+  });
+
+  for (const entry of ENTRY_POINTS) await bundle(entry, path.join(PACK, entry));
+
+  // The standalone scorer runs with nothing beside it, so it carries the WASM
+  // itself (engine/sandbox.js). Only this file: the tarball ships the WASM once.
+  fs.rmSync(path.dirname(SCORER), { recursive: true, force: true });
+  await bundle('grading/score.js', SCORER, {
+    __QUICKJS_WASM_BASE64__: JSON.stringify(fs.readFileSync(WASM).toString('base64')),
+  });
 
   for (const rel of FILES) {
     fs.cpSync(path.join(ROOT, rel), path.join(PACK, rel), { recursive: true, filter: shipped });
@@ -115,6 +127,7 @@ async function main() {
   }
   process.stdout.write(`  ${'pack/ (unpacked)'.padEnd(32)} ${size(sizeOf(PACK))}\n`);
   process.stdout.write(`  ${'release.tar.gz'.padEnd(32)} ${size(fs.statSync(TARBALL).size)}\n`);
+  process.stdout.write(`  ${'scorer/score.js (standalone)'.padEnd(32)} ${size(fs.statSync(SCORER).size)}\n`);
 }
 
 function sizeOf(file) {
@@ -135,4 +148,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { ENTRY_POINTS, FILES, shipped };
+module.exports = { ENTRY_POINTS, FILES, shipped, SCORER };

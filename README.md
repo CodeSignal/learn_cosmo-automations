@@ -79,6 +79,10 @@ release, so there are two download URLs:
 | Production | `https://github.com/CodeSignal/learn_cosmo-automations/releases/latest/download/release.tar.gz` |
 | Staging | `https://github.com/CodeSignal/learn_cosmo-automations/releases/download/prerelease/release.tar.gz` |
 
+Each release also carries the scorer on its own, `score.js`: one file with the
+QuickJS WASM inside, at the same URLs with `score.js` in place of
+`release.tar.gz`. The command grader downloads only that.
+
 The base task's `setup.sh` and `grader/grader.sh` pick between them with
 `$APP_ENVIRONMENT`, so a build reaches staging first. Once it is tested there,
 promote it to production by making it the latest release:
