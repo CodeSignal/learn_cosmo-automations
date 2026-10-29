@@ -47,9 +47,11 @@ directory must be.
 
 On Submit, the platform runs the command from a private copy of that directory,
 with the candidate's files at `$CODESIGNAL_WORKSPACE`. `grader.sh` downloads the
-same release the session runs into that private directory — once; a later run
-reuses it — and runs its [`grading/score.js`](../grading/score.js) on
-`$CODESIGNAL_WORKSPACE`. `score.js` re-runs the saved workflow and checks it
+scorer of the same release the session runs into that private directory — once;
+a later run reuses it — and runs it on `$CODESIGNAL_WORKSPACE`. Each release
+carries the scorer as its own asset, `score.js`: [`grading/score.js`](../grading/score.js)
+packed into one file with the QuickJS WASM inside, so it runs with nothing
+beside it and the grader never downloads or unpacks the tarball. `score.js` re-runs the saved workflow and checks it
 exactly as `run_solution.sh` does, and writes `score.json` —
 `{ totalScore, maxScore, breakoutScores }`, one point per assertion — and
 `report.md` — the score, a table of the checks, and the full grading report.

@@ -55,9 +55,16 @@ let QuickJS = null;
 /**
  * Where the WASM comes from. A release has no node_modules — every entry point is
  * one bundled file — so it carries the WASM once, at its root, and every bundle
- * loads that copy. In a checkout the package finds its own.
+ * loads that copy. The standalone scorer carries it inside itself, as base64 put
+ * in place of __QUICKJS_WASM_BASE64__ when it is packed. In a checkout the
+ * package finds its own.
  */
 function wasmVariant() {
+  if (typeof __QUICKJS_WASM_BASE64__ !== 'undefined') {
+    const bytes = Buffer.from(__QUICKJS_WASM_BASE64__, 'base64');
+    const wasmBinary = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    return newVariant(RELEASE_SYNC, { wasmBinary });
+  }
   const shipped = path.join(packageRoot(), RELEASE_WASM);
   return fs.existsSync(shipped) ? newVariant(RELEASE_SYNC, { wasmLocation: shipped }) : RELEASE_SYNC;
 }

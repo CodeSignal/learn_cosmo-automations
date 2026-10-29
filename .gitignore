@@ -18,8 +18,9 @@ scenarios/*/out/
 *.log
 
 
-# Locally built release tarball (CI builds its own)
+# Locally built release tarball and standalone scorer (CI builds its own)
 release.tar.gz
+scorer/
 
 # Recorded demo videos. Regenerate with `npm run record` — a 2MB binary per
 # recording does not belong in git history, and the recorder is the source of truth.

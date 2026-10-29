@@ -4,7 +4,7 @@
 /**
  * Prove a release tarball can actually run a session.
  *
- *   node scripts/verify-release.js release.tar.gz
+ *   node scripts/verify-release.js release.tar.gz [scorer/score.js]
  *
  * The template's tarball line ships `dist/ package.json server.js node_modules/`,
  * which is right for a vanilla-JS sim and dead on arrival for this one: the server
@@ -15,6 +15,9 @@
  * So this extracts the tarball somewhere clean, boots it exactly as `setup.sh`
  * would, drives a real workflow through the HTTP API, and grades the result. If
  * this passes, the release works.
+ *
+ * The standalone scorer (the command grader's download) is then run alone, in a
+ * directory with nothing beside it, on the same session.
  */
 
 const { execFileSync, spawn } = require('child_process');
@@ -28,6 +31,10 @@ const PORT = Number(process.env.VERIFY_PORT || 3399);
 const tarball = path.resolve(process.argv[2] || 'release.tar.gz');
 if (!fs.existsSync(tarball)) {
   fail(`tarball not found: ${tarball}\nBuild one with:\n  npm run build && npm run pack`);
+}
+const scorer = path.resolve(process.argv[3] || path.join('scorer', 'score.js'));
+if (!fs.existsSync(scorer)) {
+  fail(`standalone scorer not found: ${scorer}\nBuild it with:\n  npm run build && npm run pack`);
 }
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-release-'));
@@ -153,6 +160,18 @@ async function main() {
   fs.rmSync(graderDir, { recursive: true, force: true });
   step(`command grader scored the reference solution ${scored.totalScore}/${scored.maxScore}, report written`);
 
+  // What grader.sh downloads: the scorer on its own, with no WASM, package.json
+  // or anything else beside it or above it.
+  const alone = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-scorer-'));
+  fs.copyFileSync(scorer, path.join(alone, 'score.js'));
+  execFileSync('node', ['score.js', '--workspace', work], { cwd: alone });
+  const scoredAlone = JSON.parse(fs.readFileSync(path.join(alone, 'score.json'), 'utf8'));
+  fs.rmSync(alone, { recursive: true, force: true });
+  if (JSON.stringify(scoredAlone) !== JSON.stringify(scored)) {
+    fail(`the standalone scorer disagrees with the release's: ${JSON.stringify(scoredAlone)}`);
+  }
+  step(`standalone scorer (${Math.round(fs.statSync(scorer).size / 1024)} KB) scored it the same, alone in a directory`);
+
   /**
    * The platform reads `activity.log` to see inside a bespoke UI, so a release
    * that does not write one is broken in a way nothing else here would catch —
@@ -191,7 +210,7 @@ async function main() {
   if (!/solvable|✓/.test(validated)) fail(`npm run validate did not prove the bundled scenario:\n${validated}`);
   step(`npm run validate works from the tarball (${path.basename(path.dirname(bundled))})`);
 
-  process.stdout.write('\n✓ the release tarball runs a session end to end\n');
+  process.stdout.write('\n✓ the release tarball runs a session end to end, and the scorer grades alone\n');
   cleanup();
 }
 

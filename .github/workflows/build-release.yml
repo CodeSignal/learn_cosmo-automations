@@ -65,22 +65,25 @@ jobs:
 
 
       # One minified file per entry point, the built client, the scenarios and
-      # the QuickJS WASM. See scripts/pack-release.js.
+      # the QuickJS WASM; and the scorer alone, with the WASM inside, for the
+      # command grader. See scripts/pack-release.js.
       - name: Pack the release
         run: npm run pack
 
-      - name: Verify the tarball can actually run a session
-        run: node scripts/verify-release.js release.tar.gz
+      - name: Verify the tarball can run a session and the scorer can grade alone
+        run: node scripts/verify-release.js release.tar.gz scorer/score.js
 
       - name: Upload build artifact (for workflow logs)
         uses: actions/upload-artifact@v4
         with:
           name: release
-          path: release.tar.gz
+          path: |
+            release.tar.gz
+            scorer/score.js
 
       # A pre-release: it never becomes /latest by itself, so production keeps
       # the build it has until this one is promoted.
-      - name: Create GitHub pre-release and upload asset
+      - name: Create GitHub pre-release and upload assets
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -89,7 +92,8 @@ jobs:
           body: |
             Build from main (${{ github.sha }}). Staging gets it through the floating `prerelease` tag.
             Promote it to production by marking it as the latest release.
-          artifacts: release.tar.gz
+          artifacts: release.tar.gz,scorer/score.js
+          artifactErrorsFailBuild: true
           allowUpdates: false
           draft: false
           prerelease: true
@@ -120,13 +124,15 @@ jobs:
           notes="Floating alias for the newest build. Currently \`${SOURCE_TAG}\` (\`${SOURCE_SHA}\`).
 
           Production: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/release.tar.gz
-          Staging:    https://github.com/${GITHUB_REPOSITORY}/releases/download/prerelease/release.tar.gz"
+          Staging:    https://github.com/${GITHUB_REPOSITORY}/releases/download/prerelease/release.tar.gz
+
+          The scorer alone, for the command grader: the same URLs with score.js in place of release.tar.gz."
 
           if gh release view prerelease >/dev/null 2>&1; then
             gh release edit prerelease --prerelease --target "${SOURCE_SHA}" \
               --title "Newest build (staging)" --notes "${notes}"
-            gh release upload prerelease release.tar.gz --clobber
+            gh release upload prerelease release.tar.gz scorer/score.js --clobber
           else
-            gh release create prerelease release.tar.gz --prerelease --target "${SOURCE_SHA}" \
+            gh release create prerelease release.tar.gz scorer/score.js --prerelease --target "${SOURCE_SHA}" \
               --title "Newest build (staging)" --notes "${notes}"
           fi
